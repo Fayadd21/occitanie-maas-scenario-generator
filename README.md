@@ -9,7 +9,7 @@ This repository is my adaptation of `eqasim-france` focused on an Occitanie MaaS
 
 ## Documentation
 
-- [Occitanie MaaS documentation](docs/occitanie-maas/index.md)
+- [Occitanie MaaS documentation](https://fayadd21.github.io/occitanie-maas-scenario-generator/)
 - [Original eqasim-france documentation](https://eqasim-org.github.io/eqasim-france)
 
 ## Acknowledgments
