@@ -55,6 +55,8 @@ def process_municipality(context, origin_id):
         "person_id", "home_location", "commute_distance"
     ]].copy()
     df_candidates = df_candidates[df_candidates["origin_id"] == origin_id]
+    if len(df_persons) == 0 or len(df_candidates) == 0:
+        return pd.DataFrame(columns=["person_id", "commune_id", "location_id", "geometry"])
 
     # From previous step, this should be equal!
     assert len(df_persons) == len(df_candidates)
@@ -68,6 +70,8 @@ def process_municipality(context, origin_id):
     return df_candidates[["person_id", "commune_id", "location_id", "geometry"]]
 
 def process(context, purpose, df_persons, df_candidates):
+    if len(df_persons) == 0 or len(df_candidates) == 0:
+        return pd.DataFrame(columns=["person_id", "commune_id", "location_id", "geometry"])
     unique_ids = df_candidates["origin_id"].unique()
 
     df_result = []
@@ -76,8 +80,12 @@ def process(context, purpose, df_persons, df_candidates):
         with context.parallel(dict(df_persons = df_persons, df_candidates = df_candidates)) as parallel:
             for df_partial in parallel.imap_unordered(process_municipality, unique_ids):
                 df_result.append(df_partial)
-
-    return pd.concat(df_result).sort_index()
+    if len(df_result) == 0:
+        return pd.DataFrame(columns=["person_id", "commune_id", "location_id", "geometry"])
+    non_empty = [df for df in df_result if len(df) > 0]
+    if len(non_empty) == 0:
+        return pd.DataFrame(columns=["person_id", "commune_id", "location_id", "geometry"])
+    return pd.concat(non_empty).sort_index()
 
 def execute(context):
     data = context.stage("synthesis.population.spatial.primary.candidates")
@@ -123,5 +131,9 @@ def execute(context):
         education = []
         for prefix, education_type in EDUCATION_MAPPING.items():
             education.append(process(context, prefix,df_education[df_education["age_range"]==prefix],df_education_candidates[df_education_candidates["education_type"].isin(education_type)]))
-        df_education = pd.concat(education).sort_index()
+        non_empty = [df for df in education if len(df) > 0]
+        if len(non_empty) > 0:
+            df_education = pd.concat(non_empty).sort_index()
+        else:
+            df_education = pd.DataFrame(columns=["person_id", "commune_id", "location_id", "geometry"])
     return df_work, df_education

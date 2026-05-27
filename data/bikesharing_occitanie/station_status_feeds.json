@@ -1,0 +1,11 @@
+{
+  "toulouse": "https://api.cyclocity.fr/contracts/toulouse/gbfs/v2/station_status.json",
+  "montpellier": "https://gbfs.theta.fifteen.eu/gbfs/2.2/montpellier/en/station_status.json",
+  "grand_auch": "https://api.gbfs.v3.0.ecovelo.mobi/auchveloc/station_status.json",
+  "gevaudan": "https://www.mobility-parc.net/gbfs/v3/GEVAUDAN/station_status.json",
+  "argeles_sur_mer": "https://api.gbfs.v3.0.ecovelo.mobi/velodaqui/station_status.json",
+  "carcassonne": "https://api.gbfs.v3.0.ecovelo.mobi/cyclolibre/station_status.json",
+  "nimes": "https://api.gbfs.v3.0.ecovelo.mobi/nemovelo/station_status.json",
+  "tarbes_lourdes": "https://api.gbfs.v3.0.ecovelo.mobi/tlpmobilites/station_status.json",
+  "perpignan": "https://proxy.transport.data.gouv.fr/resource/pony-perpignan-gbfs/station_status.json"
+}

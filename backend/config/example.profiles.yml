@@ -1,0 +1,99 @@
+version: 1
+
+# Gaussian noise on profile scores before argmax (0 = deterministic). Uses job's random_seed.
+latent_class_noise_std: 0.3
+
+default_allowed:
+  - cost_efficient
+  - time_efficient
+  - prefers_car
+  - prefers_bike
+  - prefers_pt
+  - multimodal_flexible
+
+default_preferences:
+  - { id: fastest_route, metric: duration, objective: minimize, weight: 0.20 }
+  - { id: shortest_distance, metric: distance, objective: minimize, weight: 0.10 }
+  - { id: cheapest_option, metric: price, objective: minimize, weight: 0.70 }
+
+# Tie-break order when two profiles have the same total score (first wins)
+profile_order:
+  - cost_efficient
+  - time_efficient
+  - prefers_car
+  - prefers_bike
+  - prefers_pt
+  - multimodal_flexible
+
+profiles:
+  - id: cost_efficient
+    label: Cost-efficient
+    rules:
+      - { field: household_income, op: "<", value: 1800, points: 2 }
+      - { field: car_availability, op: "not_in", value: [all, some], points: 1 }
+      - { field: has_pt_subscription, op: "==", value: true, points: 1 }
+      - { field: bike_availability, op: "==", value: all, points: 0.5 }
+    preferences:
+      - { id: fastest_route, metric: duration, objective: minimize, weight: 0.10 }
+      - { id: shortest_distance, metric: distance, objective: minimize, weight: 0.10 }
+      - { id: cheapest_option, metric: price, objective: minimize, weight: 0.80 }
+
+  - id: time_efficient
+    label: Time-efficient
+    rules:
+      - { field: employed, op: "==", value: true, points: 2 }
+      - { field: has_license, op: "==", value: true, points: 1 }
+      - { field: car_availability, op: "==", value: all, points: 1 }
+      - { field: household_income, op: ">", value: 3500, points: 1 }
+    preferences:
+      - { id: fastest_route, metric: duration, objective: minimize, weight: 0.70 }
+      - { id: shortest_distance, metric: distance, objective: minimize, weight: 0.20 }
+      - { id: cheapest_option, metric: price, objective: minimize, weight: 0.10 }
+
+  - id: prefers_car
+    label: Prefers car
+    rules:
+      - { field: car_availability, op: "==", value: all, points: 2 }
+      - { field: car_availability, op: "==", value: some, points: 1 }
+      - { field: has_license, op: "==", value: true, points: 1 }
+      - { field: employed, op: "==", value: true, points: 0.5 }
+    preferences:
+      - { id: fastest_route, metric: duration, objective: minimize, weight: 0.55 }
+      - { id: shortest_distance, metric: distance, objective: minimize, weight: 0.25 }
+      - { id: cheapest_option, metric: price, objective: minimize, weight: 0.20 }
+
+  - id: prefers_bike
+    label: Prefers bike
+    rules:
+      - { field: bike_availability, op: "==", value: all, points: 2 }
+      - { field: bike_availability, op: "==", value: some, points: 1 }
+      - { field: age, op: between, value: [16, 55], points: 1 }
+      - { field: car_availability, op: "not_in", value: [all, some], points: 0.5 }
+    preferences:
+      - { id: fastest_route, metric: duration, objective: minimize, weight: 0.35 }
+      - { id: shortest_distance, metric: distance, objective: minimize, weight: 0.40 }
+      - { id: cheapest_option, metric: price, objective: minimize, weight: 0.25 }
+
+  - id: prefers_pt
+    label: Prefers public transport
+    rules:
+      - { field: has_pt_subscription, op: "==", value: true, points: 2 }
+      - { field: car_availability, op: "not_in", value: [all, some], points: 1 }
+      - { field: household_income, op: "<", value: 2200, points: 1 }
+      - { field: has_license, op: "==", value: false, points: 0.5 }
+    preferences:
+      - { id: fastest_route, metric: duration, objective: minimize, weight: 0.45 }
+      - { id: shortest_distance, metric: distance, objective: minimize, weight: 0.05 }
+      - { id: cheapest_option, metric: price, objective: minimize, weight: 0.50 }
+
+  - id: multimodal_flexible
+    label: Multimodal flexible
+    rules:
+      - { field: car_availability, op: "==", value: some, points: 1 }
+      - { field: bike_availability, op: "==", value: some, points: 1 }
+      - { field: has_pt_subscription, op: "==", value: true, points: 1 }
+      - { field: employed, op: "==", value: true, points: 1 }
+    preferences:
+      - { id: fastest_route, metric: duration, objective: minimize, weight: 0.34 }
+      - { id: shortest_distance, metric: distance, objective: minimize, weight: 0.33 }
+      - { id: cheapest_option, metric: price, objective: minimize, weight: 0.33 }

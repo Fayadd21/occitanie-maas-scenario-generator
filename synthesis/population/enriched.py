@@ -20,6 +20,7 @@ def configure(context):
     context.stage("synthesis.population.sampled")
     context.stage("synthesis.population.income.selected")
     context.config("extra_enriched_attributes", [])
+    context.config("latent_classes.enabled", False)
 
     hts = context.config("hts")
     context.stage("data.hts.selected", alias = "hts")
@@ -101,5 +102,5 @@ def execute(context):
     df_population.loc[df_population["age"].between(11,14),"age_range"] = "middle_school"
     df_population.loc[df_population["age"].between(15,17),"age_range"] = "high_school"
     df_population["age_range"] = df_population["age_range"].astype("category")
-    
+
     return df_population

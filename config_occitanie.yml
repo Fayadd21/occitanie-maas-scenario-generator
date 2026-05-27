@@ -1,0 +1,62 @@
+## Synthetic population pipeline for Occitanie
+## based on the synpp package
+
+# This is the path to a directory where the pipeline can store temporary data (cache folder)
+working_directory: # expected something like: /mnt/c/eqasim-france/cache
+
+# This section defines which parts of the pipeline should be run
+run:
+  - synthesis.output
+
+# Here the configuraiton of the pipeline starts
+config:
+  # Some general configuration
+  processes: 4
+  hts: entd
+  latent_classes.enabled: false
+  target_population: null
+  target_households: null
+  baseline_run_id: baseline_occitanie_59510
+  baseline_run_path: # expected something like: /mnt/c/eqasim-france/output/baselines/baseline_occitanie_59510
+  sampling_rate: 0.01
+  random_seed: 1234
+
+  # Paths to the input data and where the output should be stored
+  data_path: # expected something like: /mnt/c/eqasim-france/data
+  output_path: # expected something like: /mnt/c/eqasim-france/output
+  output_prefix: occitanie_
+  output_formats:
+  - csv
+  - gpkg
+
+  # Only interesting if you run the simulation
+  java_memory: 14G
+  mode_choice: false
+  export_trips: false
+
+  # Occitanie settings
+  regions: []
+  departments: [] # ["09", "82", "81", "11", "31", "32", "12", "30", "34", "46", "48", "65", "66"]
+
+
+  gtfs_path: gtfs_occitanie
+  ban_path: ban_occitanie
+  bdtopo_path: bdtopo_occitanie
+  bikesharing_path: bikesharing_occitanie
+  gbfs_path: gbfs
+  carsharing_path: carsharing_occitanie/station_information_carsharing_citiz_occitanie.json
+  carpooling_path: carpooling_occitanie/infrastructures-de-covoiturage-en-occitanie-v2.csv
+
+  taxi_data_paths:
+  - taxi_pmr_occitanie/taxis_toulouse.json
+  - taxi_pmr_occitanie/pmr_taxis_delivery_Montpellier.json
+
+  pmr_data_paths:
+  - taxi_pmr_occitanie/pmr_Toulouse.json
+  - taxi_pmr_occitanie/pmr_taxis_delivery_Montpellier.json
+
+  parking_data_paths: parking_occitanie
+
+  pnr_data_paths: p+r
+
+  income_assignation_method: bhepop2

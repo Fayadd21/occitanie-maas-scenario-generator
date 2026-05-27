@@ -74,7 +74,7 @@ def resample_cdf(cdf, factor):
 def resample_distributions(distributions, factors):
     for mode, mode_distributions in distributions.items():
         for distribution in mode_distributions["distributions"]:
-            distribution["cdf"] = resample_cdf(distribution["cdf"], factors[mode])
+            distribution["cdf"] = resample_cdf(distribution["cdf"], factors.get(mode, 0.0))
 
 from synthesis.population.spatial.secondary.rda import AssignmentSolver, DiscretizationErrorObjective, GravityChainSolver, AngularTailSolver, GeneralRelaxationSolver
 from synthesis.population.spatial.secondary.components import CustomDistanceSampler, CustomDiscretizationSolver, CandidateIndex, CustomFreeChainSolver
@@ -100,7 +100,7 @@ def execute(context):
 
     # Resampling for calibration
     resample_distributions(distance_distributions, dict(
-        car = 0.0, car_passenger = 0.1, pt = 0.5, bike = 0.0, walk = -0.5
+        car = 0.0, carpooling = 0.1, carsharing = 0.1, taxi = 0.2, pt = 0.5, bike = 0.0, walk = -0.5
     ))
 
     # Segment into subsamples
@@ -180,7 +180,7 @@ def process(context, arguments):
 
   # Set up assignment solver
   thresholds = dict(
-    car = 200.0, car_passenger = 200.0, pt = 200.0,
+    car = 200.0, carpooling = 200.0, carsharing = 200.0, taxi = 200.0, pt = 200.0,
     bike = 100.0, walk = 100.0
   )
 

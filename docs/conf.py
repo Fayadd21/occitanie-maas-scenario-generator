@@ -6,9 +6,9 @@
 # -- Project information -----------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
-project = 'Eqasim'
-copyright = '2024, Eqasim contributors'
-author = 'Eqasim contributors'
+project = "Occitanie MaaS Scenario Generator"
+copyright = "2026, Dawood Fayad"
+author = "Dawood Fayad"
 
 # fetch version from version file
 with open("../version.txt", "r") as f:
@@ -36,10 +36,10 @@ master_doc = "contents"
 # -- Options for HTML output -------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#options-for-html-output
 
-html_title = "Eqasim"
-html_short_title = "Eqasim documentation"
+html_title = "Occitanie MaaS Scenario Generator Documentation"
+html_short_title = "Occitanie MaaS docs"
 
-html_baseurl = "https://eqasim.readthedocs.io/stable/"
+html_baseurl = "https://fayadd21.github.io/occitanie-maas-scenario-generator/"
 # html_theme_options = {
 #     "collapse_navigation": True,
 #     "navigation_depth": 2,

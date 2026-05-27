@@ -100,16 +100,24 @@ def read_feed(path):
 
     if "agency" in feed:
         df_agency = feed["agency"]
+        if "agency_id" not in df_agency.columns:
+            # GTFS allows missing agency_id when there is a single agency.
+            df_agency["agency_id"] = "generic"
         df_agency.loc[df_agency["agency_id"].isna(), "agency_id"] = "generic"
+        feed["agency"] = df_agency
 
     if "routes" in feed:
         df_routes = feed["routes"]
-        agency_id = feed["agency"]["agency_id"].values[0]
+        if "agency" in feed and "agency_id" in feed["agency"].columns and len(feed["agency"]) > 0:
+            agency_id = feed["agency"]["agency_id"].values[0]
+        else:
+            agency_id = "generic"
 
         if not "agency_id" in df_routes:
             df_routes["agency_id"] = agency_id
 
         df_routes.loc[df_routes["agency_id"].isna(), "agency_id"] = agency_id
+        feed["routes"] = df_routes
 
     if "shapes" in feed: del feed["shapes"]
     feed["trips"]["shape_id"] = np.nan

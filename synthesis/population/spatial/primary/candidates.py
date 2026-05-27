@@ -52,6 +52,8 @@ def sample_locations(context, arguments):
     # Determine demand
     df_flow = df_flow[df_flow["destination_id"] == destination_id]
     count = df_flow["count"].sum()
+    if count <= 0 or len(df_locations) == 0:
+        return pd.DataFrame(columns=["origin_id", "location_id", "destination_id"])
 
     # Sample destinations
     weight = np.ones((len(df_locations),)) / len(df_locations)
@@ -83,6 +85,8 @@ def sample_locations(context, arguments):
 
 def process(context, purpose, random, df_persons, df_od, df_locations,step_name):
     df_persons = df_persons[df_persons["has_%s_trip" % purpose]]
+    if len(df_persons) == 0:
+        return pd.DataFrame(columns=["origin_id", "destination_id", "location_id"])
 
     # Sample commute flows based on population
     df_demand = df_persons.groupby("commune_id",observed=False).size().reset_index(name = "count")
@@ -96,8 +100,12 @@ def process(context, purpose, random, df_persons, df_od, df_locations,step_name)
         with context.parallel(dict(df_od = df_od)) as parallel:
             for df_partial in parallel.imap_unordered(sample_destination_municipalities, df_demand.itertuples(index = False, name = None)):
                 df_flow.append(df_partial)
+    if len(df_flow) == 0:
+        return pd.DataFrame(columns=["origin_id", "destination_id", "location_id"])
 
     df_flow = pd.concat(df_flow).sort_values(["origin_id", "destination_id"])
+    if len(df_flow) == 0:
+        return pd.DataFrame(columns=["origin_id", "destination_id", "location_id"])
 
     # Sample destinations based on the obtained flows
     unique_ids = df_flow["destination_id"].unique()
@@ -109,8 +117,12 @@ def process(context, purpose, random, df_persons, df_od, df_locations,step_name)
         with context.parallel(dict(df_locations = df_locations, df_flow = df_flow)) as parallel:
             for df_partial in parallel.imap_unordered(sample_locations, zip(unique_ids, random_seeds)):
                 df_result.append(df_partial)
+    if len(df_result) == 0:
+        return pd.DataFrame(columns=["origin_id", "destination_id", "location_id"])
 
     df_result = pd.concat(df_result).sort_values(["origin_id", "destination_id"])
+    if len(df_result) == 0:
+        return pd.DataFrame(columns=["origin_id", "destination_id", "location_id"])
 
     return df_result[["origin_id", "destination_id", "location_id"]]
 
@@ -153,7 +165,11 @@ def execute(context):
                     df_persons[df_persons["age_range"]==prefix],
                     df_education_od[df_education_od["age_range"]==prefix],df_locations[df_locations["education_type"].isin(education_type)],prefix)
             )
-        df_education = pd.concat(df_education)
+        non_empty = [df for df in df_education if len(df) > 0]
+        if len(non_empty) > 0:
+            df_education = pd.concat(non_empty)
+        else:
+            df_education = pd.DataFrame(columns=["origin_id", "destination_id", "location_id"])
 
     return dict(
         work_candidates = df_work,

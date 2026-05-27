@@ -9,12 +9,13 @@ based upon the information contained herein or with respect to any errors or omi
 
 ## Privacy policy
 
-This website is hosted by Readthedocs. See their privacy policy [here](https://about.readthedocs.com/privacy-policy/).
+This documentation is hosted on GitHub Pages.
+See GitHub's privacy statement: [https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement).
 
 
 ## License
 
-Eqasim is under the GPL-2.0 license.
+Occitanie MaaS Scenario Generator is under the GPL-2.0 license.
 
 ```{literalinclude} ../../LICENSE
 ```

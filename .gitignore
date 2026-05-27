@@ -1,17 +1,43 @@
 __pycache__
 env
-cache
-output
+.synpp_cache
+/cache/
+/output/
 
+# data files
 data/nantes_2015
 data/lyon_2015
+data/ban_occitanie
+data/bdtopo_occitanie
+data/gtfs_occitanie
+data/carsharing_occitanie
+data/carpooling_occitanie
+data/parking_occitanie
+data/taxi_pmr_occitanie
+data/p+r
+data/rp_*
+data/emp_*
+data/entd_*
+data/iris_*
+data/codes_*
+data/bpe_*
+data/filosofi_*
+data/gbfs/station_information_*.json
+data/gbfs/system_information_*.json
+data/bikesharing_occitanie/station_status_data/
+data/sirene/*.parquet
+
 .vscode
 .idea
 
 config_local_*.yml
+backend/config/profiles.yml
 
 # sphinx build files
 docs/_build
 
 .sif
 
+# run-specific files
+backend/state/
+data/cutter/generated/
