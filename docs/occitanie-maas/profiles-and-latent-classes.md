@@ -21,7 +21,7 @@ as the reference template. Scenario jobs fail if `profiles.yml` is missing.
 - `profile_order` - tie-break on equal total score
 - `default_allowed` - classes listed in the UI by default
 - `default_preferences` - fallback preference weights if a profile has no `preferences` block
-- `latent_class_noise_std` - standard deviation of Gaussian noise on scores; `0` disables noise
+- `latent_class_noise_std` - standard deviation of Gaussian noise applied to exported preference weights; `0` disables noise
 
 ## Assignment
 
@@ -29,9 +29,7 @@ Enabled when `assign_latent_classes: true` in the job config (set by the backend
 `POST /jobs`, not for baseline rebuild).
 
 In `synthesis/profiles/loader.py`, each person is scored on every profile. Household
-fields are merged before scoring. If `latent_class_noise_std` > 0, a normal draw is
-added to each score; the class with the highest value is kept. The job `random_seed`
-fixes the draws for a given run.
+fields are merged before scoring, and the class with the highest score is kept.
 
 Baseline persons are not classified. Enrichment does not assign classes (`latent_classes.enabled: false`).
 
@@ -47,9 +45,10 @@ them for export. All persons with the same class share the same preference set.
 
 ## Noise
 
-`latent_class_noise_std` is the sigma of `N(0, sigma)`, not a fixed step size.
-With rule scores on the order of a few points, values around `0.2`-`0.5` perturb
-close cases; much larger values override the rules.
+`latent_class_noise_std` is the sigma of `N(0, sigma)` applied independently to
+each preference weight marked with `noise_target: true`, then weights are
+renormalized to sum to 1. If no preference has `noise_target: true`, no noise is
+applied.
 
 ---
 
@@ -112,7 +111,7 @@ Each rule is a dict:
 | `in` | list | String value in list (case-insensitive) |
 | `not_in` | list | String value not in list |
 
-**Points** are summed per profile. The profile with the highest total wins (after optional noise).
+**Points** are summed per profile. The profile with the highest total wins.
 
 ### 4. Usable Fields
 
@@ -170,6 +169,9 @@ Each profile should define `preferences` with weighted metrics:
   (you can add other metric ids your downstream routing stack understands)
 - `objective`: `maximize` or `minimize`.
 - `weight`: any non-negative numbers (normalized to sum to 1 on export)
+- `noise_target` (optional): set `true` on one or more preferences to make
+  `latent_class_noise_std` change those weights; if omitted on all preferences, no
+  noise is applied.
 
 The example file's `default_preferences` are used only when a profile has no
 `preferences` block.

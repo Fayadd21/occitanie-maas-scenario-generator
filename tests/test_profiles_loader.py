@@ -175,7 +175,7 @@ profile_order:
     assert str(first.loc[0, "latent_class"]) == str(second.loc[0, "latent_class"])
 
 
-def test_assign_latent_classes_noise_can_change_assignment(tmp_path):
+def test_assign_latent_classes_noise_std_does_not_change_assignment(tmp_path):
     profiles_path = tmp_path / "profiles_noise.yml"
     profiles_path.write_text(
         """
@@ -211,7 +211,77 @@ profile_order:
         str(assign_latent_classes(df_persons, profiles_path, random_seed=seed).loc[0, "latent_class"])
         for seed in range(30)
     }
-    assert "profile_a" in assignments
+    assert assignments == {"profile_b"}
+
+
+def test_preferences_noise_perturbs_selected_weight(tmp_path):
+    profiles_path = tmp_path / "profiles_noise_weight.yml"
+    profiles_path.write_text(
+        """
+version: 1
+latent_class_noise_std: 0.2
+profiles:
+  - id: test_profile
+    rules: []
+    preferences:
+      - { id: fastest_route, metric: duration, objective: minimize, weight: 0.6, noise_target: true }
+      - { id: shortest_distance, metric: distance, objective: minimize, weight: 0.2 }
+      - { id: cheapest_option, metric: price, objective: minimize, weight: 0.2 }
+""".strip(),
+        encoding="utf-8",
+    )
+    run_a = preferences_for_profile("test_profile", profiles_path, request_index=1)
+    run_b = preferences_for_profile("test_profile", profiles_path, request_index=2)
+
+    assert abs(sum(row["weight"] for row in run_a) - 1.0) < 1e-9
+    assert abs(sum(row["weight"] for row in run_b) - 1.0) < 1e-9
+    assert abs(run_a[0]["weight"] - run_b[0]["weight"]) > 1e-6
+
+
+def test_preferences_noise_perturbs_multiple_targets(tmp_path):
+    profiles_path = tmp_path / "profiles_noise_multi_target.yml"
+    profiles_path.write_text(
+        """
+version: 1
+latent_class_noise_std: 0.2
+profiles:
+  - id: test_profile
+    rules: []
+    preferences:
+      - { id: fastest_route, metric: duration, objective: minimize, weight: 0.5, noise_target: true }
+      - { id: cheapest_option, metric: price, objective: minimize, weight: 0.3, noise_target: true }
+      - { id: shortest_distance, metric: distance, objective: minimize, weight: 0.2 }
+""".strip(),
+        encoding="utf-8",
+    )
+    run_a = preferences_for_profile("test_profile", profiles_path, request_index=1)
+    run_b = preferences_for_profile("test_profile", profiles_path, request_index=2)
+
+    assert abs(sum(row["weight"] for row in run_a) - 1.0) < 1e-9
+    assert abs(sum(row["weight"] for row in run_b) - 1.0) < 1e-9
+    assert abs(run_a[0]["weight"] - run_b[0]["weight"]) > 1e-6
+    assert abs(run_a[1]["weight"] - run_b[1]["weight"]) > 1e-6
+
+
+def test_preferences_noise_not_applied_without_noise_target(tmp_path):
+    profiles_path = tmp_path / "profiles_noise_without_target.yml"
+    profiles_path.write_text(
+        """
+version: 1
+latent_class_noise_std: 0.2
+profiles:
+  - id: test_profile
+    rules: []
+    preferences:
+      - { id: fastest_route, metric: duration, objective: minimize, weight: 0.6 }
+      - { id: shortest_distance, metric: distance, objective: minimize, weight: 0.2 }
+      - { id: cheapest_option, metric: price, objective: minimize, weight: 0.2 }
+""".strip(),
+        encoding="utf-8",
+    )
+    run_a = preferences_for_profile("test_profile", profiles_path, request_index=1)
+    run_b = preferences_for_profile("test_profile", profiles_path, request_index=2)
+    assert [row["weight"] for row in run_a] == [row["weight"] for row in run_b]
 
 
 def test_preferences_support_more_than_three_objectives(tmp_path):

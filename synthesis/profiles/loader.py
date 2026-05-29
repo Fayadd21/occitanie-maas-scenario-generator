@@ -134,7 +134,6 @@ def assign_latent_classes(
     profiles = data["profiles"]
     profile_order = [str(profile["id"]) for profile in profiles]
     tie_order = [str(value) for value in (data.get("profile_order") or profile_order)]
-    noise_std = _resolve_latent_class_noise(data)
 
     frame = merge_household_attributes(df_persons, df_households)
     scores = pd.DataFrame(index=frame.index)
@@ -148,9 +147,6 @@ def assign_latent_classes(
             ordered_columns.append(column)
 
     scores_array = scores[ordered_columns].to_numpy(dtype=float)
-    if noise_std > 0.0:
-        rng = np.random.default_rng(random_seed)
-        scores_array = scores_array + rng.normal(0.0, noise_std, size=scores_array.shape)
 
     best_idx = np.argmax(scores_array, axis=1)
     result = df_persons.copy()
@@ -169,6 +165,46 @@ def _normalize_preference_weights(preference_rows: list[dict[str, Any]]) -> list
             return []
         return [1.0 / len(weights)] * len(weights)
     return [weight / total for weight in weights]
+
+
+def _resolve_noise_target_indices(
+    preference_rows: list[dict[str, Any]],
+    normalized_weights: list[float],
+) -> list[int]:
+    if not normalized_weights:
+        return []
+    return [
+        idx
+        for idx, row in enumerate(preference_rows)
+        if bool(row.get("noise_target") or row.get("preferred_noise"))
+    ]
+
+
+def _apply_preference_weight_noise(
+    preference_rows: list[dict[str, Any]],
+    normalized_weights: list[float],
+    *,
+    noise_std: float,
+    random_seed: int,
+) -> list[float]:
+    if noise_std <= 0.0 or not normalized_weights:
+        return normalized_weights
+
+    target_indices = _resolve_noise_target_indices(preference_rows, normalized_weights)
+    if not target_indices:
+        return normalized_weights
+
+    weights = np.asarray(normalized_weights, dtype=float)
+    rng = np.random.default_rng(random_seed)
+    for target_idx in target_indices:
+        weights[target_idx] = float(
+            np.clip(float(weights[target_idx]) + rng.normal(0.0, noise_std), 0.0, 1.0)
+        )
+
+    total = float(weights.sum())
+    if total <= 0.0:
+        return [1.0 / len(weights)] * len(weights)
+    return (weights / total).tolist()
 
 
 def preferences_for_profile(
@@ -194,6 +230,13 @@ def preferences_for_profile(
         raise ValueError(f"No preferences defined for profile '{profile_id}' in {profiles_path}")
 
     normalized_weights = _normalize_preference_weights(preference_rows)
+    noise_std = _resolve_latent_class_noise(data)
+    normalized_weights = _apply_preference_weight_noise(
+        preference_rows,
+        normalized_weights,
+        noise_std=noise_std,
+        random_seed=int(request_index),
+    )
     preferences: list[dict[str, Any]] = []
     for row, weight in zip(preference_rows, normalized_weights):
         metric = str(row["metric"])
