@@ -81,6 +81,27 @@ def test_clear_synpp_cache_removes_working_directory(tmpdir, monkeypatch):
     assert not (cache_dir / "pipeline.json").exists()
 
 
+def test_build_runtime_config_uses_full_synthesis_when_target_exceeds_baseline(tmp_path, monkeypatch):
+    _patch_config_service(tmp_path, monkeypatch)
+    import backend.app.services.config_service as config_service
+
+    monkeypatch.setattr(config_service, "targets_exceed_baseline", lambda *_args, **_kwargs: True)
+
+    runtime_config_path, _, _, effective = build_runtime_config(
+        run_id="run_exceeds_baseline",
+        selected_area_geojson=None,
+        config_overrides={"strict_target_mode": True},
+        target_population=65_000,
+        target_households=None,
+    )
+
+    yaml_text = runtime_config_path.read_text(encoding="utf-8")
+    assert "baseline_run_path" not in yaml_text
+    assert effective["population_source"] == "full_synthesis"
+    assert effective["exceeds_baseline"] is True
+    assert effective["sampling_rate"] is not None
+
+
 def test_build_runtime_config_keeps_stable_output(tmp_path, monkeypatch):
     output_dir = _patch_config_service(tmp_path, monkeypatch)
     run_id = "run_test_profile"
@@ -102,21 +123,6 @@ def test_build_runtime_config_keeps_stable_output(tmp_path, monkeypatch):
     content = runtime_config_path.read_text(encoding="utf-8")
     assert "output_prefix: occitanie_" in content
     assert "export_static_resources: false" in content
-    assert "bike_available_bikes_overrides" not in content
-
-
-def test_build_runtime_config_strips_bike_scenario_overrides_from_yaml(tmp_path, monkeypatch):
-    _patch_config_service(tmp_path, monkeypatch)
-    run_id = "run_test_bike_strip"
-    runtime_config_path, _, _, _ = build_runtime_config(
-        run_id=run_id,
-        selected_area_geojson=None,
-        config_overrides={"bike_available_bikes_overrides": {"toulouse:1": 5}},
-        target_population=10,
-        target_households=None,
-    )
-    yaml_text = runtime_config_path.read_text(encoding="utf-8")
-    assert "bike_available_bikes_overrides" not in yaml_text
 
 
 def test_build_runtime_config_strips_bikesharing_station_availability_from_yaml(tmp_path, monkeypatch):

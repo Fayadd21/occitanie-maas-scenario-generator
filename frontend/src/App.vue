@@ -38,19 +38,18 @@ const latentClassOptions = ref([])
 const allowedLatentClasses = ref([])
 const MAX_HOUSEHOLD_SIZE = 6
 const BASELINE_TARGET_POPULATION = 59_510
-const STRICT_TARGET_THRESHOLD = BASELINE_TARGET_POPULATION
 const OCCITANIE_REFERENCE_POPULATION = 5_951_000
 const BASELINE_SAMPLING_RATE = BASELINE_TARGET_POPULATION / OCCITANIE_REFERENCE_POPULATION
 const jobState = ref({
   status: 'idle',
   jobId: null,
   runId: null,
-  cacheSource: null,
   effectiveConfig: null,
   outputs: [],
   error: null,
 })
 const baselineReady = ref(false)
+const baselinePopulation = ref(BASELINE_TARGET_POPULATION)
 let pollTimer = null
 
 const bikeAvailabilityOverrides = ref({})
@@ -233,7 +232,7 @@ function setAllowedLatentClasses(values) {
 }
 
 function shouldAutoEnableStrictMode() {
-  return Number(targetPopulation.value) > STRICT_TARGET_THRESHOLD
+  return Number(targetPopulation.value) > Number(baselinePopulation.value)
 }
 
 async function refreshBaselineReady() {
@@ -254,6 +253,9 @@ async function loadDefaults() {
     if (!defaults) return
     if (Number.isFinite(Number(defaults.target_population))) {
       targetPopulation.value = Math.max(1, Math.round(Number(defaults.target_population)))
+    }
+    if (Number.isFinite(Number(defaults.baseline_population)) && Number(defaults.baseline_population) > 0) {
+      baselinePopulation.value = Math.round(Number(defaults.baseline_population))
     }
     userSetTargetHouseholds.value = false
   } catch (error) {
@@ -302,15 +304,11 @@ function stopPolling() {
 async function refreshJob(jobId) {
   const status = await getJobStatus(jobId)
   jobState.value.status = status.status
-  jobState.value.cacheSource = `${status.source_output_prefix || 'occitanie_'} @ ${status.source_output_path || 'output'}`
   jobState.value.effectiveConfig = status.effective_config || null
   if (status.status === 'succeeded' || status.status === 'failed') {
     stopPolling()
     if (status.status === 'succeeded') {
       if (status.job_type === 'baseline') {
-        jobState.value.cacheSource = status.baseline_run_path
-          ? `baseline @ ${status.baseline_run_path}`
-          : 'baseline updated'
         refreshLayersAfterBaselineRebuild()
         await refreshBaselineReady()
       } else {
@@ -334,7 +332,6 @@ async function startBaselineRebuild() {
       status: 'starting',
       jobId: null,
       runId: null,
-      cacheSource: null,
       effectiveConfig: null,
       outputs: [],
       error: null,
@@ -413,13 +410,21 @@ async function startGeneration() {
       status: 'starting',
       jobId: null,
       runId: null,
-      cacheSource: null,
       effectiveConfig: null,
       outputs: [],
       error: null,
     }
     const requestedTargetPopulation = targetPopulation.value
     const requestedTargetHouseholds = userSetTargetHouseholds.value ? targetHouseholds.value : null
+    if (requestedTargetPopulation > baselinePopulation.value) {
+      const proceed = window.confirm(
+        `Target population (${requestedTargetPopulation}) is larger than the current baseline (${baselinePopulation.value}). ` +
+          'A full regional synthesis will run. This can take a long time. Continue?',
+      )
+      if (!proceed) {
+        return
+      }
+    }
     const strictModeEnabled = shouldAutoEnableStrictMode()
     const samplingRateOverride = strictModeEnabled ? null : BASELINE_SAMPLING_RATE
 
@@ -444,7 +449,6 @@ async function startGeneration() {
       status: created.status,
       jobId: created.job_id,
       runId: created.run_id,
-      cacheSource: null,
       effectiveConfig: null,
       outputs: [],
       error: null,

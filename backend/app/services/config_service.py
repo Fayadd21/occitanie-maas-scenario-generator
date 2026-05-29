@@ -9,7 +9,7 @@ from typing import Any
 
 import yaml
 
-from backend.app.services.baseline_service import is_baseline_ready
+from backend.app.services.baseline_service import is_baseline_ready, targets_exceed_baseline
 from backend.app.services.constants import (
     CONFIG_TEMPLATE,
     CUTTER_DIR,
@@ -30,6 +30,14 @@ def load_defaults() -> dict[str, Any]:
         defaults["target_population"] = 59510
     defaults["baseline_run_id"] = DEFAULT_BASELINE_RUN_ID
     defaults["baseline_ready"] = is_baseline_ready()
+    if defaults["baseline_ready"]:
+        from backend.app.services.baseline_service import count_baseline_households, count_baseline_persons
+
+        defaults["baseline_population"] = count_baseline_persons()
+        defaults["baseline_households"] = count_baseline_households()
+    else:
+        defaults["baseline_population"] = 0
+        defaults["baseline_households"] = 0
     return defaults
 
 
@@ -94,17 +102,23 @@ def build_runtime_config(
 
     strict_target_mode = bool(overrides.get("strict_target_mode", False))
     randomize_each_run = bool(overrides.get("randomize_each_run", False))
+    exceeds_baseline = targets_exceed_baseline(target_population, target_households)
 
     if "sampling_rate" in overrides:
         cfg["sampling_rate"] = overrides["sampling_rate"]
-    elif strict_target_mode:
+    elif exceeds_baseline or strict_target_mode:
         derived_rate = _derive_sampling_rate_from_targets(cfg, target_population, target_households)
         if derived_rate is not None:
             cfg["sampling_rate"] = derived_rate
 
+    population_source = "baseline"
+    if exceeds_baseline:
+        cfg.pop("baseline_run_id", None)
+        cfg.pop("baseline_run_path", None)
+        population_source = "full_synthesis"
+
     cfg.pop("strict_target_mode", None)
     cfg.pop("randomize_each_run", None)
-    cfg.pop("bike_available_bikes_overrides", None)
     cfg.pop("bikesharing_station_availability", None)
 
     cfg["output_path"] = normalized_output_path
@@ -126,6 +140,8 @@ def build_runtime_config(
         "export_static_resources": cfg.get("export_static_resources", None),
         "profiles_path": cfg.get("profiles_path"),
         "assign_latent_classes": cfg.get("assign_latent_classes"),
+        "population_source": population_source,
+        "exceeds_baseline": exceeds_baseline,
     }
 
     return runtime_config_path, base_output_path, base_output_prefix, effective

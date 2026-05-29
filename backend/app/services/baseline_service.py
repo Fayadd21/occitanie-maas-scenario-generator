@@ -57,6 +57,41 @@ def baseline_directory(baseline_run_id: str | None = None) -> Path:
     return BASELINES_DIR / run_id
 
 
+def count_baseline_persons(baseline_run_id: str | None = None) -> int:
+    run_id = baseline_run_id or DEFAULT_BASELINE_RUN_ID
+    persons_path = baseline_directory(run_id) / f"{run_id}_persons.csv"
+    if not persons_path.is_file():
+        return 0
+    import pandas as pd
+
+    return int(len(pd.read_csv(persons_path, sep=";", usecols=["person_id"])))
+
+
+def count_baseline_households(baseline_run_id: str | None = None) -> int:
+    run_id = baseline_run_id or DEFAULT_BASELINE_RUN_ID
+    households_path = baseline_directory(run_id) / f"{run_id}_households.csv"
+    if not households_path.is_file():
+        return 0
+    import pandas as pd
+
+    return int(len(pd.read_csv(households_path, sep=";", usecols=["household_id"])))
+
+
+def targets_exceed_baseline(
+    target_population: int | None,
+    target_households: int | None,
+    baseline_run_id: str | None = None,
+) -> bool:
+    run_id = baseline_run_id or DEFAULT_BASELINE_RUN_ID
+    if not is_baseline_ready(run_id):
+        return False
+    if target_population is not None and int(target_population) > count_baseline_persons(run_id):
+        return True
+    if target_households is not None and int(target_households) > count_baseline_households(run_id):
+        return True
+    return False
+
+
 def is_baseline_ready(baseline_run_id: str | None = None) -> bool:
     run_id = baseline_run_id or DEFAULT_BASELINE_RUN_ID
     baseline_dir = baseline_directory(run_id)

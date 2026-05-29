@@ -252,19 +252,29 @@ function applyImportedGeoJson(parsed) {
 
   try {
     const b = drawnItems.getBounds()
-    map.fitBounds(b, { padding: [28, 28], maxZoom: 13 })
+    map.fitBounds(b, { padding: [28, 28], maxZoom: 13, animate: false })
   } catch {
     /* ignore invalid bounds */
   }
 
   emitCurrentSelection()
+  requestAnimationFrame(() => invalidateMapSize())
   return { ok: true }
 }
 
+let resizeFrame = null
+
 function invalidateMapSize() {
-  if (map) {
-    map.invalidateSize({ animate: false })
+  if (!map) return
+  if (resizeFrame !== null) {
+    cancelAnimationFrame(resizeFrame)
   }
+  resizeFrame = requestAnimationFrame(() => {
+    resizeFrame = null
+    if (map) {
+      map.invalidateSize({ animate: false })
+    }
+  })
 }
 
 defineExpose({
@@ -375,10 +385,11 @@ onMounted(async () => {
 })
 
 watch(
-  () => ({ ...props.visibility }),
+  () => props.visibility,
   () => {
     syncVisibility()
   },
+  { deep: true },
 )
 
 watch(
@@ -417,6 +428,10 @@ watch(
 )
 
 onBeforeUnmount(() => {
+  if (resizeFrame !== null) {
+    cancelAnimationFrame(resizeFrame)
+    resizeFrame = null
+  }
   mapResizeObserver?.disconnect()
   mapResizeObserver = null
   if (map) {

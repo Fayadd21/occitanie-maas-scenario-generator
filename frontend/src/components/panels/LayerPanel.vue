@@ -66,6 +66,57 @@ const jobBusy = computed(
 
 const generateDisabled = computed(() => !props.baselineReady || jobBusy.value)
 
+const STATUS_LABELS = {
+  idle: 'Idle',
+  starting: 'Starting',
+  running: 'Running',
+  succeeded: 'Succeeded',
+  failed: 'Failed',
+}
+
+const statusLabel = computed(
+  () => STATUS_LABELS[props.jobState.status] || props.jobState.status,
+)
+
+const statusBadgeClass = computed(() => {
+  const status = props.jobState.status
+  if (status === 'succeeded') return 'status-badge status-badge--success'
+  if (status === 'failed') return 'status-badge status-badge--error'
+  if (status === 'running' || status === 'starting') return 'status-badge status-badge--running'
+  return 'status-badge status-badge--neutral'
+})
+
+const effectiveRows = computed(() => {
+  const config = props.jobState.effectiveConfig
+  if (!config) return []
+  return [
+    {
+      label: 'Population source',
+      value: config.population_source === 'full_synthesis' ? 'full synthesis' : 'baseline',
+    },
+    { label: 'Sampling', value: config.sampling_rate },
+    {
+      label: 'Random seed',
+      value: config.randomize_each_run ? 'yes' : 'no',
+    },
+  ]
+})
+
+const copiedRunId = ref(false)
+
+async function copyRunId() {
+  if (!props.jobState.runId) return
+  try {
+    await navigator.clipboard.writeText(props.jobState.runId)
+    copiedRunId.value = true
+    window.setTimeout(() => {
+      copiedRunId.value = false
+    }, 2000)
+  } catch {
+    // Clipboard may be unavailable outside a secure context.
+  }
+}
+
 const emit = defineEmits([
   'toggle',
   'clearSelection',
@@ -207,6 +258,7 @@ function onBikeEditorInput(event) {
 
 <template>
   <aside class="panel">
+    <div class="panel-scroll">
     <header class="panel-heading">
       <h1>Occitanie MaaS Scenario Generator</h1>
     </header>
@@ -320,7 +372,7 @@ function onBikeEditorInput(event) {
       </label>
 
       <label class="target-input-wrap checkbox-wrap">
-        <span>Randomize each run</span>
+        <span>New Random Seed Each Run</span>
         <input type="checkbox" :checked="randomizeEachRun" @change="updateRandomizeEachRun" />
       </label>
 
@@ -341,7 +393,7 @@ function onBikeEditorInput(event) {
           <span v-if="!hasSelection" class="muted"> · select an area to enable</span>
         </span>
         <p v-if="hasSelection" class="latent-help">
-          Share of the population target taken from homes nearest the polygon edge; the rest is random.
+          Prefer households near the polygon edge. Lower values spread selection more randomly.
         </p>
       </label>
 
@@ -430,27 +482,48 @@ function onBikeEditorInput(event) {
       </button>
     </div>
 
-    <section class="panel-job-log" aria-label="Run status and logs">
-      <p class="subtitle job-log-title">Run status</p>
-      <p class="selection-state" v-if="jobState.status !== 'idle'">
-        Status: {{ jobState.status }}
+    <section class="panel-job-log panel-block" aria-label="Run status and logs">
+      <div class="job-log-header">
+        <p class="subtitle job-log-title">Run status</p>
+        <span
+          v-if="jobState.status !== 'idle'"
+          :class="statusBadgeClass"
+          :aria-label="`Status: ${statusLabel}`"
+        >
+          <span v-if="jobBusy" class="status-spinner" aria-hidden="true" />
+          {{ statusLabel }}
+        </span>
+      </div>
+
+      <p v-if="jobState.status === 'idle' && !jobState.error" class="job-log-empty">
+        No run yet. Start a scenario generation to see progress here.
       </p>
-      <p class="selection-state" v-if="jobState.runId">
-        Run: {{ jobState.runId }}
-      </p>
-      <p class="selection-state" v-if="jobState.cacheSource">
-        Cache source: {{ jobState.cacheSource }}
-      </p>
-      <p class="selection-state" v-if="jobState.effectiveConfig">
-        Effective: sampling={{ jobState.effectiveConfig.sampling_rate }}, strict={{ jobState.effectiveConfig.strict_target_mode }}, random={{ jobState.effectiveConfig.randomize_each_run }}
-      </p>
-      <p class="selection-state error" v-if="jobState.error">
-        Error: {{ jobState.error }}
-      </p>
-      <p class="selection-state" v-if="jobState.outputs && jobState.outputs.length">
-        Outputs: {{ jobState.outputs.length }} files
-      </p>
+
+      <dl v-else class="job-log-details">
+        <template v-if="jobState.runId">
+          <dt>Run ID</dt>
+          <dd class="job-log-mono">
+            <span class="job-log-run-id" :title="jobState.runId">{{ jobState.runId }}</span>
+            <button type="button" class="job-log-copy" @click="copyRunId">
+              {{ copiedRunId ? 'Copied' : 'Copy' }}
+            </button>
+          </dd>
+        </template>
+        <template v-for="row in effectiveRows" :key="row.label">
+          <dt>{{ row.label }}</dt>
+          <dd>{{ row.value }}</dd>
+        </template>
+        <template v-if="jobState.outputs && jobState.outputs.length">
+          <dt>Outputs</dt>
+          <dd>{{ jobState.outputs.length }} files</dd>
+        </template>
+        <template v-if="jobState.error">
+          <dt>Error</dt>
+          <dd class="job-log-error">{{ jobState.error }}</dd>
+        </template>
+      </dl>
     </section>
+    </div>
   </aside>
 </template>
 
@@ -466,15 +539,25 @@ function onBikeEditorInput(event) {
   max-height: 100%;
   min-height: 0;
   align-self: stretch;
+  display: flex;
+  flex-direction: column;
   border-right: 1px solid var(--line);
-  padding: 18px 16px 20px;
   box-sizing: border-box;
   background: #fff;
-  overflow: auto;
-  overflow-x: hidden;
+  overflow: hidden;
   color: var(--ink);
   font-size: 14px;
   line-height: 1.45;
+}
+
+.panel-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  scrollbar-gutter: stable;
+  padding: 18px 16px 20px;
+  box-sizing: border-box;
 }
 
 @media (max-width: 900px) {
@@ -672,12 +755,131 @@ input {
 
 .panel-job-log {
   margin-top: 16px;
-  padding-top: 14px;
-  border-top: 1px solid var(--line);
 }
 
 .panel-job-log .job-log-title {
-  margin-bottom: 8px;
+  margin: 0;
+}
+
+.job-log-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.job-log-empty {
+  margin: 0;
+  font-size: 13px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.job-log-details {
+  margin: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 38%) 1fr;
+  gap: 6px 12px;
+  font-size: 13px;
+}
+
+.job-log-details dt {
+  margin: 0;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.job-log-details dd {
+  margin: 0;
+  color: var(--ink);
+  min-width: 0;
+  word-break: break-word;
+}
+
+.job-log-mono {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.job-log-run-id {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.4;
+  flex: 1;
+  min-width: 0;
+  word-break: break-all;
+}
+
+.job-log-copy {
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: #fff;
+  padding: 2px 8px;
+  font-size: 11px;
+  color: #475569;
+  cursor: pointer;
+}
+
+.job-log-copy:hover {
+  background: var(--surface);
+  border-color: #cbd5e1;
+}
+
+.job-log-error {
+  color: #b91c1c;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.status-badge--neutral {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.status-badge--running {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.status-badge--success {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.status-badge--error {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.status-spinner {
+  width: 10px;
+  height: 10px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: job-status-spin 0.7s linear infinite;
+}
+
+@keyframes job-status-spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .sr-only {
