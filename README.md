@@ -3,9 +3,9 @@
 ![Occitanie MaaS Scenario Generator UI](docs/occitanie-maas/Occitanie-scenario-generator-UI.png "Occitanie MaaS Scenario Generator")
 
 This repository is my adaptation of `eqasim-france` focused on an Occitanie MaaS workflow:
-- generating scenario populations from a stored Occitanie baseline,
-- assigning latent classes and preferences from `profiles.yml`,
-- exporting scenario outputs (`scenario.json` and CSV layers) for map-driven analysis.
+- generating scenario populations from a stored Occitanie baseline with the ability to control these scenarios through an interface
+- assigning latent classes and preferences from `profiles.yml`
+- exporting scenario outputs (`scenario.json` and CSV layers) for map-driven analysis
 
 ## Documentation
 
