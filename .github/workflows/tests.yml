@@ -41,7 +41,7 @@ jobs:
         uv --version
         python --version
         git --version
-    - name: Run pipeline tests
+    - name: Run tests
       shell: bash -el {0}
       run: |
         MKL_CBWR=AUTO uv run pytest tests/
