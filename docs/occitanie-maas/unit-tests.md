@@ -41,7 +41,6 @@ synpp pipelines (population synthesis, and optionally MATSim).
 
 | File | What it checks |
 |------|----------------|
-| `test_pipeline.py` | End-to-end population stages on fake data |
 | `test_determinism.py` | Reproducible outputs for synthesis on fake data |
 
 Expect minutes of runtime and several GB of temp data under pytest's `tmpdir`. They are not

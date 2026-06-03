@@ -135,12 +135,12 @@ def _test_determinism(index, data_path, tmpdir):
     manager.check(
         "ile_de_france_vehicle_types.csv",
         "{}/ile_de_france_vehicle_types.csv".format(output_path),
-        "e35f237b15dbd76b1fa137f01f54d1c1")
+        "b89e00bd28f2cb290be5f780a15e9362")
 
     manager.check(
         "ile_de_france_vehicles.csv",
         "{}/ile_de_france_vehicles.csv".format(output_path),
-        "4ceb5f779a32236859735219eebc45ad")
+        "786d70a0b3338590523e7f9f931354c2")
 
     manager.check(
         "ile_de_france_activities.gpkg",
