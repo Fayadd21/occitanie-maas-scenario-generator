@@ -38,6 +38,23 @@ const layerGroups = new Map()
 const layerLoadVersion = new Map()
 let drawnItems = null
 
+const SELECTION_STYLE = {
+  color: '#2563eb',
+  weight: 3,
+  fillColor: '#3b82f6',
+  fillOpacity: 0,
+}
+
+function resourceMarkerStyle(layerConfig) {
+  return {
+    radius: layerConfig.markerRadius ?? 4,
+    weight: layerConfig.markerWeight ?? 2,
+    color: layerConfig.strokeColor ?? layerConfig.color,
+    fillColor: layerConfig.fillColor ?? layerConfig.color,
+    fillOpacity: layerConfig.fillOpacity ?? 0.88,
+  }
+}
+
 function buildPopup(record, fields) {
   return fields
     .filter((field) => record[field] !== undefined && record[field] !== '')
@@ -71,14 +88,7 @@ async function ensureLayerOnMap(layerConfig) {
     }
     const featureCollection = await response.json()
     const geoJsonLayer = L.geoJSON(featureCollection, {
-      pointToLayer: (_feature, latlng) =>
-        L.circleMarker(latlng, {
-          radius: 3,
-          weight: 1,
-          color: layerConfig.color,
-          fillColor: layerConfig.color,
-          fillOpacity: 0.6,
-        }),
+      pointToLayer: (_feature, latlng) => L.circleMarker(latlng, resourceMarkerStyle(layerConfig)),
       onEachFeature: (feature, layer) => {
         const properties = feature.properties || {}
         const popup = buildPopup(properties, layerConfig.popupFields || [])
@@ -95,13 +105,7 @@ async function ensureLayerOnMap(layerConfig) {
       const lon = Number(row[layerConfig.lonField])
       if (Number.isNaN(lat) || Number.isNaN(lon)) return
 
-      const marker = L.circleMarker([lat, lon], {
-        radius: 4,
-        weight: 1,
-        color: layerConfig.color,
-        fillColor: layerConfig.color,
-        fillOpacity: 0.7,
-      })
+      const marker = L.circleMarker([lat, lon], resourceMarkerStyle(layerConfig))
 
       if (layerConfig.id === 'bikesharing') {
         marker._bikeBaseRow = row
@@ -146,6 +150,9 @@ async function ensureLayerOnMap(layerConfig) {
   layerGroups.set(layerConfig.id, group)
   if (props.visibility[layerConfig.id]) {
     group.addTo(map)
+    if (layerConfig.id !== 'generatedPopulation' && layerConfig.id !== 'generatedActivities') {
+      group.bringToFront()
+    }
   }
 }
 
@@ -226,12 +233,7 @@ function getSelectionFeatureCollection() {
   }
 }
 
-const IMPORTED_STYLE = {
-  color: '#2563eb',
-  weight: 2,
-  fillColor: '#3b82f6',
-  fillOpacity: 0.2,
-}
+const IMPORTED_STYLE = SELECTION_STYLE
 
 function applyImportedGeoJson(parsed) {
   const parsedResult = parseAreaGeoJson(parsed)
@@ -311,9 +313,13 @@ function setupDrawing() {
     continueDrawing: false,
     snappable: true,
     snapDistance: 16,
+    pathOptions: SELECTION_STYLE,
   })
 
   map.on('pm:create', (event) => {
+    if (event.layer?.setStyle) {
+      event.layer.setStyle(SELECTION_STYLE)
+    }
     drawnItems.clearLayers()
     drawnItems.addLayer(event.layer)
     emitCurrentSelection()
