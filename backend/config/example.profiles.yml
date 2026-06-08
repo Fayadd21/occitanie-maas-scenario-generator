@@ -67,6 +67,10 @@ profiles:
   - id: prefers_bike
     label: Prefers bike
     rules:
+      # Home commune (INSEE code on household, from home activity)
+      - { field: commune_id, op: in, value: ["31555"], points: 2 }
+      
+      - { field: home_destination_distance_km, op: "<", value: 5, points: 2 }
       - { field: bike_availability, op: "==", value: all, points: 2 }
       - { field: bike_availability, op: "==", value: some, points: 1 }
       - { field: age, op: between, value: [16, 55], points: 1 }

@@ -1,6 +1,12 @@
 import pandas as pd
 
-from synthesis.profiles.loader import assign_latent_classes, list_profile_summaries, preferences_for_profile
+from synthesis.profiles.loader import (
+    assign_latent_classes,
+    attach_home_destination_distance,
+    list_profile_summaries,
+    merge_household_attributes,
+    preferences_for_profile,
+)
 
 _SAMPLE_PROFILES_YAML = """
 version: 1
@@ -92,6 +98,107 @@ def test_assign_latent_classes_from_profiles(tmp_path):
         "prefers_bike",
         "prefers_pt",
     }
+
+
+def test_assign_latent_classes_commune_id_rules(tmp_path):
+    profiles_path = tmp_path / "profiles_commune.yml"
+    profiles_path.write_text(
+        """
+version: 1
+profile_order:
+  - prefers_bike
+  - prefers_car
+profiles:
+  - id: prefers_bike
+    rules:
+      - { field: commune_id, op: in, value: ["31555"], points: 10 }
+      - { field: age, op: ">", value: 0, points: 0 }
+    preferences:
+      - { id: a, metric: duration, objective: minimize, weight: 1 }
+  - id: prefers_car
+    rules:
+      - { field: age, op: ">", value: 0, points: 1 }
+    preferences:
+      - { id: a, metric: duration, objective: minimize, weight: 1 }
+""".strip(),
+        encoding="utf-8",
+    )
+    df_persons = pd.DataFrame([{"person_id": 1, "household_id": "h1", "age": 30}])
+    df_households = pd.DataFrame([{"household_id": "h1", "commune_id": 31555.0}])
+    result = assign_latent_classes(df_persons, profiles_path, df_households=df_households)
+    assert str(result.loc[0, "latent_class"]) == "prefers_bike"
+
+
+def test_merge_household_attributes_coerces_household_id_types():
+    df_persons = pd.DataFrame([{"person_id": 1, "household_id": 42, "age": 30}])
+    df_households = pd.DataFrame([{"household_id": "42", "commune_id": 31069.0}])
+    merged = merge_household_attributes(df_persons, df_households)
+    assert merged.loc[0, "commune_id"] == 31069.0
+
+
+class _Point:
+    def __init__(self, x: float, y: float) -> None:
+        self.x = x
+        self.y = y
+
+
+def test_attach_home_destination_distance_work(tmp_path):
+    df_persons = pd.DataFrame([{"person_id": "p1", "age": 30}])
+    df_activities = pd.DataFrame(
+        [
+            {"person_id": "p1", "activity_index": 0, "purpose": "home", "geometry": _Point(1.444, 43.604)},
+            {"person_id": "p1", "activity_index": 1, "purpose": "work", "geometry": _Point(1.450, 43.610)},
+        ]
+    )
+    result = attach_home_destination_distance(df_persons, df_activities)
+    assert result.loc[0, "home_destination_distance_km"] > 0.5
+    assert result.loc[0, "home_destination_distance_km"] < 2.0
+
+
+def test_attach_home_destination_distance_education_fallback():
+    df_persons = pd.DataFrame([{"person_id": "p1", "age": 16}])
+    df_activities = pd.DataFrame(
+        [
+            {"person_id": "p1", "activity_index": 0, "purpose": "home", "geometry": _Point(1.0, 43.0)},
+            {"person_id": "p1", "activity_index": 1, "purpose": "education", "geometry": _Point(1.1, 43.0)},
+        ]
+    )
+    result = attach_home_destination_distance(df_persons, df_activities)
+    assert result.loc[0, "home_destination_distance_km"] > 5.0
+
+
+def test_assign_latent_classes_home_destination_distance_rules(tmp_path):
+    profiles_path = tmp_path / "profiles_distance.yml"
+    profiles_path.write_text(
+        """
+version: 1
+profile_order:
+  - prefers_bike
+  - prefers_car
+profiles:
+  - id: prefers_bike
+    rules:
+      - { field: home_destination_distance_km, op: "<", value: 2, points: 10 }
+    preferences:
+      - { id: a, metric: duration, objective: minimize, weight: 1 }
+  - id: prefers_car
+    rules:
+      - { field: age, op: ">", value: 0, points: 1 }
+    preferences:
+      - { id: a, metric: duration, objective: minimize, weight: 1 }
+""".strip(),
+        encoding="utf-8",
+    )
+    df_persons = pd.DataFrame([{"person_id": "p1", "age": 30}])
+    df_activities = pd.DataFrame(
+        [
+            {"person_id": "p1", "activity_index": 0, "purpose": "home", "geometry": _Point(1.444, 43.604)},
+            {"person_id": "p1", "activity_index": 1, "purpose": "work", "geometry": _Point(1.450, 43.610)},
+        ]
+    )
+    df_persons = attach_home_destination_distance(df_persons, df_activities)
+    result = assign_latent_classes(df_persons, profiles_path)
+    assert str(result.loc[0, "latent_class"]) == "prefers_bike"
 
 
 def test_preferences_for_profile_reads_yaml(tmp_path):

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +12,8 @@ FIELD_ALIASES: dict[str, list[str]] = {
     "has_license": ["has_license", "has_driving_license"],
     "household_income": ["household_income", "income"],
 }
+
+_EARTH_RADIUS_KM = 6371.0
 
 
 def load_profiles_config(profiles_path: str | Path) -> dict[str, Any]:
@@ -58,6 +61,33 @@ def _normalize_rule_value(value: Any) -> Any:
     return value
 
 
+def _match_token(value: Any) -> str | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except TypeError:
+        pass
+    numeric = pd.to_numeric(pd.Series([value]), errors="coerce").iloc[0]
+    if pd.notna(numeric) and float(numeric).is_integer():
+        return str(int(numeric))
+    return str(value).strip().lower()
+
+
+def _series_match_tokens(series: pd.Series) -> pd.Series:
+    return series.map(_match_token)
+
+
+def _allowed_tokens(values: list[Any]) -> set[str]:
+    tokens: set[str] = set()
+    for item in values:
+        token = _match_token(item)
+        if token is not None:
+            tokens.add(token)
+    return tokens
+
+
 def _rule_matches(series: pd.Series, rule: dict[str, Any]) -> pd.Series:
     op = str(rule.get("op", "")).strip()
     value = _normalize_rule_value(rule.get("value"))
@@ -72,18 +102,17 @@ def _rule_matches(series: pd.Series, rule: dict[str, Any]) -> pd.Series:
     if op == "==":
         if isinstance(value, bool):
             return series.fillna(False).astype(bool) == value
-        return series.astype(str).str.strip().str.lower() == str(value).strip().lower()
+        token = _match_token(value)
+        if token is None:
+            return pd.Series(False, index=series.index)
+        return _series_match_tokens(series) == token
     if op == "between":
         low, high = value
         return numeric.between(float(low), float(high), inclusive="both")
     if op == "in":
-        allowed = {_normalize_rule_value(item) for item in value}
-        normalized = series.astype(str).str.strip().str.lower()
-        return normalized.isin({str(item).strip().lower() for item in allowed})
+        return _series_match_tokens(series).isin(_allowed_tokens(list(value)))
     if op == "not_in":
-        allowed = {_normalize_rule_value(item) for item in value}
-        normalized = series.astype(str).str.strip().str.lower()
-        return ~normalized.isin({str(item).strip().lower() for item in allowed})
+        return ~_series_match_tokens(series).isin(_allowed_tokens(list(value)))
 
     raise ValueError(f"Unsupported profile rule operator: {op}")
 
@@ -100,22 +129,152 @@ def merge_household_attributes(df_persons: pd.DataFrame, df_households: pd.DataF
     if df_households is None or "household_id" not in df_persons.columns:
         return df_persons.copy()
 
+    persons = df_persons.copy()
     households = df_households.copy()
+    persons["household_id"] = persons["household_id"].astype(str)
+    households["household_id"] = households["household_id"].astype(str)
     if "income" in households.columns and "household_income" not in households.columns:
         households["household_income"] = households["income"]
 
     merge_columns = ["household_id"]
-    for column in ("car_availability", "bike_availability", "household_income"):
+    for column in ("car_availability", "bike_availability", "household_income", "commune_id"):
         if column in households.columns:
             merge_columns.append(column)
 
-    merged = df_persons.merge(
+    merged = persons.merge(
         households[merge_columns].drop_duplicates("household_id"),
         on="household_id",
         how="left",
         suffixes=("", "_household"),
     )
     return merged
+
+
+def _geodesic_distance_km(origin: Any, destination: Any) -> float | None:
+    if origin is None or destination is None:
+        return None
+    try:
+        if pd.isna(origin) or pd.isna(destination):
+            return None
+    except TypeError:
+        pass
+    try:
+        lat1 = math.radians(float(origin.y))
+        lon1 = math.radians(float(origin.x))
+        lat2 = math.radians(float(destination.y))
+        lon2 = math.radians(float(destination.x))
+    except (AttributeError, TypeError, ValueError):
+        return None
+    dlat = lat2 - lat1
+    dlon = lon2 - lon1
+    chord = math.sin(dlat / 2.0) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2.0) ** 2
+    return _EARTH_RADIUS_KM * 2.0 * math.asin(min(1.0, math.sqrt(chord)))
+
+
+def _geometry_by_purpose(df_activities: pd.DataFrame, purpose: str) -> pd.Series:
+    subset = df_activities[df_activities["purpose"].astype(str) == purpose]
+    if len(subset) == 0:
+        return pd.Series(dtype=object)
+    ordered = subset.sort_values(["person_id", "activity_index"])
+    return ordered.drop_duplicates("person_id", keep="first").set_index("person_id")["geometry"]
+
+
+def profiles_reference_field(profiles_path: str | Path, field: str) -> bool:
+    data = load_profiles_config(profiles_path)
+    for profile in data["profiles"]:
+        for rule in profile.get("rules") or []:
+            if str(rule.get("field")) == field:
+                return True
+    return False
+
+
+def _coords_by_person(geometries: pd.Series) -> pd.DataFrame:
+    if len(geometries) == 0:
+        return pd.DataFrame(columns=["person_id", "lat", "lon"])
+    rows = []
+    for person_id, geometry in geometries.items():
+        if geometry is None or (isinstance(geometry, float) and pd.isna(geometry)):
+            continue
+        try:
+            rows.append({"person_id": str(person_id), "lat": float(geometry.y), "lon": float(geometry.x)})
+        except (AttributeError, TypeError, ValueError):
+            continue
+    return pd.DataFrame(rows)
+
+
+def _haversine_km_vector(
+    lat1: pd.Series,
+    lon1: pd.Series,
+    lat2: pd.Series,
+    lon2: pd.Series,
+) -> pd.Series:
+    lat1_rad = np.radians(lat1.to_numpy(dtype=float))
+    lon1_rad = np.radians(lon1.to_numpy(dtype=float))
+    lat2_rad = np.radians(lat2.to_numpy(dtype=float))
+    lon2_rad = np.radians(lon2.to_numpy(dtype=float))
+    dlat = lat2_rad - lat1_rad
+    dlon = lon2_rad - lon1_rad
+    chord = np.sin(dlat / 2.0) ** 2 + np.cos(lat1_rad) * np.cos(lat2_rad) * np.sin(dlon / 2.0) ** 2
+    return pd.Series(_EARTH_RADIUS_KM * 2.0 * np.arcsin(np.minimum(1.0, np.sqrt(chord))), index=lat1.index)
+
+
+def attach_home_destination_distance(
+    df_persons: pd.DataFrame,
+    df_activities: pd.DataFrame,
+) -> pd.DataFrame:
+    result = df_persons.copy()
+    if "person_id" not in result.columns:
+        result["home_destination_distance_km"] = np.nan
+        return result
+
+    if "geometry" not in df_activities.columns or "purpose" not in df_activities.columns:
+        result["home_destination_distance_km"] = np.nan
+        return result
+
+    activities = df_activities
+    if activities["person_id"].dtype != object:
+        activities = activities.copy()
+        activities["person_id"] = activities["person_id"].astype(str)
+    else:
+        activities = activities.copy()
+        activities["person_id"] = activities["person_id"].astype(str)
+
+    home = _geometry_by_purpose(activities, "home")
+    work = _geometry_by_purpose(activities, "work")
+    education = _geometry_by_purpose(activities, "education")
+
+    person_ids = result["person_id"].astype(str)
+    coords = pd.DataFrame({"person_id": person_ids})
+    coords = coords.merge(
+        _coords_by_person(home).rename(columns={"lat": "home_lat", "lon": "home_lon"}),
+        on="person_id",
+        how="left",
+    )
+    coords = coords.merge(
+        _coords_by_person(work).rename(columns={"lat": "work_lat", "lon": "work_lon"}),
+        on="person_id",
+        how="left",
+    )
+    coords = coords.merge(
+        _coords_by_person(education).rename(columns={"lat": "education_lat", "lon": "education_lon"}),
+        on="person_id",
+        how="left",
+    )
+
+    dest_lat = coords["work_lat"].fillna(coords["education_lat"])
+    dest_lon = coords["work_lon"].fillna(coords["education_lon"])
+    valid = coords["home_lat"].notna() & coords["home_lon"].notna() & dest_lat.notna() & dest_lon.notna()
+    distances = np.full(len(result), np.nan, dtype=float)
+    if valid.any():
+        distances[valid.to_numpy()] = _haversine_km_vector(
+            coords.loc[valid, "home_lat"],
+            coords.loc[valid, "home_lon"],
+            dest_lat.loc[valid],
+            dest_lon.loc[valid],
+        ).to_numpy()
+
+    result["home_destination_distance_km"] = distances
+    return result
 
 
 def _resolve_latent_class_noise(data: dict[str, Any]) -> float:

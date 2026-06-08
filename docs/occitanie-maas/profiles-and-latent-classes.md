@@ -157,6 +157,24 @@ Example rule targeting employees:
 | `household_income` | `3257` | CSV column: `income`; monthly EUR; `{ field: household_income, op: "<", value: 2200, points: 1 }` |
 | `car_availability` | `all` | `all`, `some`, `none` |
 | `bike_availability` | `some` | `{ field: bike_availability, op: "==", value: all, points: 1 }` |
+| `commune_id` | `31555` | Home commune INSEE code (household); use `in` for a list of communes |
+
+**Commune-based bonus points** (one home location per household; all persons in the
+household share it):
+
+```yaml
+- { field: commune_id, op: in, value: ["31555", "31424"], points: 2 }
+```
+
+Copy codes from `*_households.csv` in your baseline or run output. Strings and
+numbers both match (`31555` in CSV works with `"31555"` in YAML).
+
+**Home-to-destination distance** (kilometers, geodesic home to work, else education):
+
+```yaml
+- { field: home_destination_distance_km, op: "<", value: 5, points: 2 }
+- { field: home_destination_distance_km, op: ">", value: 25, points: 1 }
+```
 
 If a rule references a column that is missing after the merge, the job fails with
 `KeyError: Missing field for profile rules: ...`.
