@@ -8,8 +8,8 @@ keys in that config (`ban_path`, `bdtopo_path`, `gtfs_path`, `gbfs_path`,
 Download instructions are in [Gathering the data](gathering-the-data.md)
 (national inputs, Occitanie BAN/BDTOPO/GTFS, and MaaS feeds).
 
-We do not document how to run MATSim or `matsim.output`; that workflow is out of
-scope for this project.
+The MATSim simulation stack (`matsim/`, Java, `mode_choice`) has been removed from
+this project. Only population synthesis and MaaS resource export are supported.
 
 The `data/` tree also contains **eqasim Python modules** (for example `data/ban/`,
 `data/spatial/`). Those are processing code, not datasets; they are omitted below.

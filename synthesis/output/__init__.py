@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import geopandas as gpd
-import numpy as np
 import os
 import pandas as pd
 
@@ -21,7 +20,7 @@ from synthesis.output.spatial_outputs import (
     write_trip_geometries,
 )
 from synthesis.output.static_resources_outputs import export_static_resources
-from synthesis.output.trip_outputs import merge_mode_choice, prepare_trips, write_trips
+from synthesis.output.trip_outputs import prepare_trips, write_trips
 
 
 def _resolve_baseline_run(context, output_path: str) -> tuple[str | None, str | None]:
@@ -94,13 +93,22 @@ def configure(context):
 
     context.stage("documentation.meta_output")
 
-    if context.config("mode_choice", False):
-        context.stage("matsim.simulation.prepare")
-
 
 def validate(context):
     if not os.path.isdir(context.config("output_path")):
         raise RuntimeError("Output directory must exist: %s" % context.config("output_path"))
+
+
+def _subset_households_for_persons(
+    df_households: pd.DataFrame | None,
+    df_persons: pd.DataFrame,
+) -> pd.DataFrame | None:
+    if df_households is None or "household_id" not in df_persons.columns:
+        return df_households
+    selected_household_ids = set(df_persons["household_id"].astype(str).unique())
+    households = df_households.copy()
+    mask = households["household_id"].astype(str).isin(selected_household_ids)
+    return households[mask].copy()
 
 
 def execute(context):
@@ -141,27 +149,61 @@ def execute(context):
                 how="left",
             )
 
-    if context.config("assign_latent_classes"):
-        from synthesis.profiles.loader import assign_latent_classes
+    allowed_latent_classes = context.config("allowed_latent_classes")
+    assign_latent_classes_enabled = context.config("assign_latent_classes")
 
-        df_persons = assign_latent_classes(
-            df_persons,
-            context.config("profiles_path"),
-            df_households=df_households_for_profiles,
-            random_seed=context.config("random_seed"),
+    if assign_latent_classes_enabled:
+        from synthesis.profiles.loader import (
+            assign_latent_classes,
+            attach_home_destination_distance,
+            profiles_reference_field,
         )
 
-    df_persons, df_activities, selected_person_ids = apply_population_policy(
-        df_persons,
-        df_activities,
-        df_locations,
-        context.config("population_filter_geojson"),
-        context.config("target_population"),
-        context.config("target_households"),
-        context.config("allowed_latent_classes"),
-        context.config("outskirts_bias"),
-        context.config("random_seed"),
-    )
+        df_persons, df_activities, _ = apply_population_policy(
+            df_persons,
+            df_activities,
+            df_locations,
+            context.config("population_filter_geojson"),
+            None,
+            None,
+            None,
+            0.0,
+            context.config("random_seed"),
+        )
+        households_for_assignment = _subset_households_for_persons(df_households_for_profiles, df_persons)
+
+        profiles_path = context.config("profiles_path")
+        if profiles_path and profiles_reference_field(profiles_path, "home_destination_distance_km"):
+            df_persons = attach_home_destination_distance(df_persons, df_activities)
+        df_persons = assign_latent_classes(
+            df_persons,
+            profiles_path,
+            df_households=households_for_assignment,
+            random_seed=context.config("random_seed"),
+        )
+        df_persons, df_activities, selected_person_ids = apply_population_policy(
+            df_persons,
+            df_activities,
+            df_locations,
+            None,
+            context.config("target_population"),
+            context.config("target_households"),
+            allowed_latent_classes,
+            context.config("outskirts_bias"),
+            context.config("random_seed"),
+        )
+    else:
+        df_persons, df_activities, selected_person_ids = apply_population_policy(
+            df_persons,
+            df_activities,
+            df_locations,
+            context.config("population_filter_geojson"),
+            context.config("target_population"),
+            context.config("target_households"),
+            allowed_latent_classes,
+            context.config("outskirts_bias"),
+            context.config("random_seed"),
+        )
     write_table(df_persons, output_path, output_prefix, "persons", output_formats)
     write_activities(df_activities, output_path, output_prefix, output_formats)
     if baseline_run_path is None:
@@ -193,9 +235,6 @@ def execute(context):
             df_trips = pd.read_csv(trips_path, sep=";")
             if selected_person_ids is not None and "person_id" in df_trips.columns:
                 df_trips = df_trips[df_trips["person_id"].isin(selected_person_ids)].copy()
-        if context.config("mode_choice"):
-            df_trips = merge_mode_choice(context, df_trips, output_path, output_prefix)
-            assert not np.any(df_trips["mode"].isna())
         write_trips(df_trips, output_path, output_prefix, output_formats)
 
     if baseline_run_path is None:

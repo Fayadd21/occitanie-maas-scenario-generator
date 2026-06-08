@@ -6,7 +6,7 @@ Set up the region and data using [Gathering the data](gathering-the-data.md):
 Python environment, files under `data/`, and `config_occitanie.yml` with the
 desired departments. A file-name checklist is in [Data layout](data-layout.md).
 
-Scenario jobs use `synthesis.output` only. We do not document how to run MATSim.
+Scenario jobs use `synthesis.output` only. The MATSim simulation stack has been removed from this project.
 GeoPackage map layers (`homes.gpkg`, `activities.gpkg`) come from population spatial
 data (BAN/BDTOPO/IRIS); see [Data layout](data-layout.md). GTFS zips under
 `data/gtfs_occitanie/` (Tisséo, TAM, liO, SNCF, Tango, Sankéo, and so on) are needed

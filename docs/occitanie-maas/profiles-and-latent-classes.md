@@ -169,7 +169,7 @@ household share it):
 Copy codes from `*_households.csv` in your baseline or run output. Strings and
 numbers both match (`31555` in CSV works with `"31555"` in YAML).
 
-**Home-to-destination distance** (kilometers, geodesic home to work, else education):
+**Home-to-destination distance**:
 
 ```yaml
 - { field: home_destination_distance_km, op: "<", value: 5, points: 2 }

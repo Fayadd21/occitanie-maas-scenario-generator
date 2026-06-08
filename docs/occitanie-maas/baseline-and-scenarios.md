@@ -18,7 +18,7 @@
 
 `POST /jobs` accepts `selected_area_geojson`, `target_population`, `target_households`, and `config_overrides` (strict targets, random seed, outskirts bias, allowed classes, …).
 
-Runtime YAML uses `baseline_run_path`, `assign_latent_classes: true`, and `profiles_path`. The output stage reloads baseline tables, assigns `latent_class`, then `apply_population_policy()` applies the polygon filter, caps, allowed classes, and outskirts bias.
+Runtime YAML uses `baseline_run_path`, `assign_latent_classes: true`, and `profiles_path`. The output stage reloads baseline tables, filters by polygon, assigns `latent_class` on that subset, then applies allowed classes and population/household targets.
 
 ## Bike overrides
 
