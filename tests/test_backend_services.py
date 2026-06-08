@@ -105,23 +105,26 @@ def test_build_runtime_config_uses_full_synthesis_when_target_exceeds_baseline(t
 def test_build_runtime_config_keeps_stable_output(tmp_path, monkeypatch):
     output_dir = _patch_config_service(tmp_path, monkeypatch)
     run_id = "run_test_profile"
+    job_output_path = output_dir / "jobs" / run_id
+    job_output_path.mkdir(parents=True)
     runtime_config_path, source_output_path, source_output_prefix, effective = build_runtime_config(
         run_id=run_id,
         selected_area_geojson=None,
         config_overrides={},
         target_population=10,
         target_households=5,
+        job_output_path=job_output_path,
     )
 
     assert runtime_config_path.exists()
-    assert source_output_path == output_dir.resolve()
-    assert source_output_prefix == "occitanie_"
+    assert source_output_path == job_output_path.resolve()
+    assert source_output_prefix == f"{run_id}_"
     assert effective["target_population"] == 10
     assert effective["target_households"] == 5
     assert effective["export_static_resources"] is False
 
     content = runtime_config_path.read_text(encoding="utf-8")
-    assert "output_prefix: occitanie_" in content
+    assert f"output_prefix: {run_id}_" in content
     assert "export_static_resources: false" in content
 
 
@@ -167,19 +170,48 @@ def test_normalize_bikesharing_station_availability_and_job_record():
 def test_materialize_run_outputs_copies_prefixed_outputs(tmpdir):
     source = Path(str(tmpdir.mkdir("source")))
     destination = Path(str(tmpdir.mkdir("destination")))
-    (source / "occitanie_persons.csv").write_text("person_id\n1\n", encoding="utf-8")
-    (source / "occitanie_households.csv").write_text("household_id\n1\n", encoding="utf-8")
+    run_id = "run_abc"
+    (source / f"{run_id}_persons.csv").write_text("person_id\n1\n", encoding="utf-8")
+    (source / f"{run_id}_households.csv").write_text("household_id\n1\n", encoding="utf-8")
 
     record = {
         "source_output_path": str(source),
-        "source_output_prefix": "occitanie_",
-        "run_id": "run_abc",
+        "source_output_prefix": f"{run_id}_",
+        "run_id": run_id,
         "output_path": str(destination),
     }
     materialize_run_outputs(record)
 
-    assert (destination / "run_abc_persons.csv").exists()
-    assert (destination / "run_abc_households.csv").exists()
+    assert (destination / f"{run_id}_persons.csv").exists()
+    assert (destination / f"{run_id}_households.csv").exists()
+
+
+def test_materialize_copies_baseline_gtfs_to_job_folder(monkeypatch, tmpdir):
+    from backend.app.services import materialize_service
+
+    destination = Path(str(tmpdir.mkdir("destination_gtfs")))
+    run_id = "run_gtfs"
+    baseline_dir = Path(str(tmpdir.mkdir("baselines"))) / "baseline_test"
+    baseline_dir.mkdir(parents=True)
+    (baseline_dir / "baseline_test_gtfs_stops.csv").write_text("stop_id;stop_lat;stop_lon\n1;43;1\n", encoding="utf-8")
+    (baseline_dir / "baseline_test_gtfs_routes.csv").write_text("route_id;operator\nR1;Tisseo\n", encoding="utf-8")
+
+    monkeypatch.setattr(
+        materialize_service,
+        "baseline_artifact_path",
+        lambda suffix, baseline_run_id=None: baseline_dir / f"baseline_test_{suffix}",
+    )
+
+    record = {
+        "source_output_path": str(destination),
+        "source_output_prefix": f"{run_id}_",
+        "run_id": run_id,
+        "output_path": str(destination),
+    }
+    materialize_service.materialize_run_outputs(record)
+
+    assert (destination / f"{run_id}_gtfs_stops.csv").exists()
+    assert (destination / f"{run_id}_gtfs_routes.csv").exists()
 
 
 def test_materialize_overwrites_bikesharing_csv_with_loader(monkeypatch, tmpdir):
@@ -188,10 +220,17 @@ def test_materialize_overwrites_bikesharing_csv_with_loader(monkeypatch, tmpdir)
 
     from backend.app.services import materialize_service
 
-    source = Path(str(tmpdir.mkdir("source2")))
     destination = Path(str(tmpdir.mkdir("destination2")))
-    (source / "occitanie_bikesharing_stations.csv").write_text(
+    run_id = "run_bike"
+    baseline_dir = Path(str(tmpdir.mkdir("baselines"))) / "baseline_test"
+    baseline_dir.mkdir(parents=True)
+    (baseline_dir / "baseline_test_bikesharing_stations.csv").write_text(
         "station_id;lat;lon;capacity\n1;43.0;1.0;10\n", encoding="utf-8"
+    )
+    monkeypatch.setattr(
+        materialize_service,
+        "baseline_artifact_path",
+        lambda suffix, baseline_run_id=None: baseline_dir / f"baseline_test_{suffix}",
     )
 
     def fake_load(data_path, bikesharing_path, gbfs_path):
@@ -218,15 +257,15 @@ def test_materialize_overwrites_bikesharing_csv_with_loader(monkeypatch, tmpdir)
     )
 
     record = {
-        "source_output_path": str(source),
-        "source_output_prefix": "occitanie_",
-        "run_id": "run_bike",
+        "source_output_path": str(destination),
+        "source_output_prefix": f"{run_id}_",
+        "run_id": run_id,
         "output_path": str(destination),
         "bikesharing_station_availability": {"toulouse:1": 9},
     }
     materialize_service.materialize_run_outputs(record)
 
-    df = pd.read_csv(destination / "run_bike_bikesharing_stations.csv", sep=";")
+    df = pd.read_csv(destination / f"{run_id}_bikesharing_stations.csv", sep=";")
     assert "available_bikes" in df.columns
     assert int(df["available_bikes"].iloc[0]) == 9
 

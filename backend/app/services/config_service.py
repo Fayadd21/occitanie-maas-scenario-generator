@@ -62,6 +62,8 @@ def build_runtime_config(
     config_overrides: dict[str, Any],
     target_population: int | None,
     target_households: int | None,
+    *,
+    job_output_path: Path | None = None,
 ) -> tuple[Path, Path, str, dict[str, Any]]:
     if not CONFIG_TEMPLATE.exists():
         raise RuntimeError(f"Missing template config: {CONFIG_TEMPLATE}")
@@ -72,8 +74,12 @@ def build_runtime_config(
     config.setdefault("config", {})
     cfg = config["config"]
 
-    base_output_path = OUTPUT_DIR.resolve()
-    base_output_prefix = "occitanie_"
+    if job_output_path is not None:
+        base_output_path = job_output_path.resolve()
+        base_output_prefix = f"{run_id}_"
+    else:
+        base_output_path = OUTPUT_DIR.resolve()
+        base_output_prefix = "occitanie_"
     normalized_output_path = str(base_output_path).replace("\\", "/")
 
     if selected_area_geojson:

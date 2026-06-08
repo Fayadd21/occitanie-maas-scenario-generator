@@ -30,7 +30,7 @@ from backend.app.services.config_service import (
     utc_now,
 )
 from backend.app.services.constants import (
-    BASELINE_BIKESHARING_STATIONS_CSV,
+    baseline_artifact_path,
     DEFAULT_BASELINE_RUN_ID,
     JOBS_DIR,
     LOGS_DIR,
@@ -154,16 +154,16 @@ def create_job(payload: JobCreateRequest) -> JobResponse:
 
     job_id = uuid.uuid4().hex
     run_id = new_run_id()
+    output_path = OUTPUT_DIR / "jobs" / run_id
+    output_path.mkdir(parents=True, exist_ok=True)
     runtime_config_path, source_output_path, source_output_prefix, effective_config = build_runtime_config(
         run_id=run_id,
         selected_area_geojson=payload.selected_area_geojson,
         config_overrides=payload.config_overrides,
         target_population=effective_target_population,
         target_households=target_households,
+        job_output_path=output_path,
     )
-
-    output_path = OUTPUT_DIR / "jobs" / run_id
-    output_path.mkdir(parents=True, exist_ok=True)
     log_path = LOGS_DIR / f"{job_id}.log"
     process = start_synpp_process(runtime_config_path, log_path)
 
@@ -569,16 +569,24 @@ def _build_requests(
     return requests
 
 
+def _resolve_scenario_resource_path(output_path: Path, run_id: str, suffix: str) -> Path:
+    job_path = output_path / f"{run_id}_{suffix}"
+    if job_path.is_file():
+        return job_path
+    baseline_path = baseline_artifact_path(suffix)
+    if baseline_path.is_file():
+        return baseline_path
+    return job_path
+
+
 def _build_resources(
     output_path: Path,
     run_id: str,
     bike_station_availability: dict[str, int] | None = None,
 ) -> dict[str, Any]:
-    routes_path = output_path / f"{run_id}_gtfs_routes.csv"
-    stops_path = output_path / f"{run_id}_gtfs_stops.csv"
-    bikes_path = output_path / f"{run_id}_bikesharing_stations.csv"
-    if not bikes_path.exists() and BASELINE_BIKESHARING_STATIONS_CSV.is_file():
-        bikes_path = BASELINE_BIKESHARING_STATIONS_CSV
+    routes_path = _resolve_scenario_resource_path(output_path, run_id, "gtfs_routes.csv")
+    stops_path = _resolve_scenario_resource_path(output_path, run_id, "gtfs_stops.csv")
+    bikes_path = _resolve_scenario_resource_path(output_path, run_id, "bikesharing_stations.csv")
 
     pt_resources_by_operator: dict[str, list[dict[str, Any]]] = {}
     pt_points_by_operator: dict[str, list[dict[str, Any]]] = {}

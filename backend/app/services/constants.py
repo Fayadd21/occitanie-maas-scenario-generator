@@ -9,9 +9,22 @@ BIKESHARING_PATH = "bikesharing_occitanie"
 GBFS_PATH = "gbfs"
 OUTPUT_DIR = REPO_ROOT / "output"
 DEFAULT_BASELINE_RUN_ID = "baseline_occitanie_59510"
-BASELINE_BIKESHARING_STATIONS_CSV = (
-    OUTPUT_DIR / "baselines" / DEFAULT_BASELINE_RUN_ID / f"{DEFAULT_BASELINE_RUN_ID}_bikesharing_stations.csv"
+BASELINE_STATIC_RESOURCE_SUFFIXES = (
+    "gtfs_stops.csv",
+    "gtfs_routes.csv",
+    "bikesharing_stations.csv",
+    "carsharing_stations.csv",
+    "carpooling_stops.csv",
+    "taxi_stands.csv",
+    "pmr_stands.csv",
+    "public_parking.csv",
+    "park_and_ride.csv",
 )
+
+
+def baseline_artifact_path(suffix: str, baseline_run_id: str | None = None) -> Path:
+    run_id = baseline_run_id or DEFAULT_BASELINE_RUN_ID
+    return BASELINES_DIR / run_id / f"{run_id}_{suffix}"
 BACKEND_STATE_DIR = REPO_ROOT / "backend" / "state"
 BACKEND_CONFIG_DIR = REPO_ROOT / "backend" / "config"
 PROFILES_PATH = BACKEND_CONFIG_DIR / "profiles.yml"

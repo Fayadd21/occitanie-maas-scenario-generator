@@ -10,13 +10,28 @@ from backend.app.services.bike_csv_overrides import (
     apply_bikesharing_station_availability_to_dataframe,
     bike_station_availability_from_job_record,
 )
-from backend.app.services.constants import BIKESHARING_PATH, DATA_DIR, GBFS_PATH
+from backend.app.services.constants import (
+    BASELINE_STATIC_RESOURCE_SUFFIXES,
+    BIKESHARING_PATH,
+    DATA_DIR,
+    GBFS_PATH,
+    baseline_artifact_path,
+)
 
 
 def list_outputs(output_path: Path) -> list[str]:
     if not output_path.exists():
         return []
     return sorted([p.name for p in output_path.glob("*") if p.is_file()])
+
+
+def _copy_baseline_static_resources(destination_output_path: Path, run_id: str) -> None:
+    for suffix in BASELINE_STATIC_RESOURCE_SUFFIXES:
+        source = baseline_artifact_path(suffix)
+        if not source.is_file():
+            continue
+        target = destination_output_path / f"{run_id}_{suffix}"
+        shutil.copy2(source, target)
 
 
 def materialize_run_outputs(record: dict) -> None:
@@ -26,12 +41,15 @@ def materialize_run_outputs(record: dict) -> None:
     destination_output_path = Path(record["output_path"])
     destination_output_path.mkdir(parents=True, exist_ok=True)
 
-    for source_file in source_output_path.glob(f"{source_prefix}*"):
-        if not source_file.is_file():
-            continue
-        suffix = source_file.name[len(source_prefix):]
-        target_file = destination_output_path / f"{run_id}_{suffix}"
-        shutil.copy2(source_file, target_file)
+    if source_output_path.resolve() != destination_output_path.resolve():
+        for source_file in source_output_path.glob(f"{source_prefix}*"):
+            if not source_file.is_file():
+                continue
+            suffix = source_file.name[len(source_prefix) :]
+            target_file = destination_output_path / f"{run_id}_{suffix}"
+            shutil.copy2(source_file, target_file)
+
+    _copy_baseline_static_resources(destination_output_path, run_id)
 
     stops_path = destination_output_path / f"{run_id}_gtfs_stops.csv"
     routes_path = destination_output_path / f"{run_id}_gtfs_routes.csv"
