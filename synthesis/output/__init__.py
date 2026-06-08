@@ -173,6 +173,7 @@ def execute(context):
         households_for_assignment = _subset_households_for_persons(df_households_for_profiles, df_persons)
 
         profiles_path = context.config("profiles_path")
+        population_filter_geojson = context.config("population_filter_geojson")
         if profiles_path and profiles_reference_field(profiles_path, "home_destination_distance_km"):
             df_persons = attach_home_destination_distance(df_persons, df_activities)
         df_persons = assign_latent_classes(
@@ -185,7 +186,7 @@ def execute(context):
             df_persons,
             df_activities,
             df_locations,
-            None,
+            population_filter_geojson,
             context.config("target_population"),
             context.config("target_households"),
             allowed_latent_classes,
