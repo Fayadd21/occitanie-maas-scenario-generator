@@ -38,10 +38,19 @@ const layerGroups = new Map()
 const layerLoadVersion = new Map()
 let drawnItems = null
 
+const SELECTION_COLOR = '#dc2626'
+
 const SELECTION_STYLE = {
-  color: '#2563eb',
+  color: SELECTION_COLOR,
   weight: 3,
-  fillColor: '#3b82f6',
+  fillColor: SELECTION_COLOR,
+  fillOpacity: 0,
+}
+
+const DRAW_GUIDE_STYLE = {
+  color: SELECTION_COLOR,
+  weight: 3,
+  fillColor: SELECTION_COLOR,
   fillOpacity: 0,
 }
 
@@ -314,7 +323,14 @@ function setupDrawing() {
     snappable: true,
     snapDistance: 16,
     pathOptions: SELECTION_STYLE,
+    templineStyle: DRAW_GUIDE_STYLE,
+    hintlineStyle: {
+      color: SELECTION_COLOR,
+      weight: 3,
+      dashArray: [5, 5],
+    },
   })
+  map.pm.setPathOptions(SELECTION_STYLE)
 
   map.on('pm:create', (event) => {
     if (event.layer?.setStyle) {
