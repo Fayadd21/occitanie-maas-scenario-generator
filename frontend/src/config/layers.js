@@ -13,6 +13,9 @@ export const DEFAULT_MAP_VIEW = {
   zoom: 8,
 }
 
+export const REGION_OUTLINE_GEOJSON_URL = '/regions.geojson'
+export const OCCITANIE_REGION_CODE = '76'
+
 export const RESOURCE_LAYERS = [
   {
     id: 'generatedPopulation',

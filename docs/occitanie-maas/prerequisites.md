@@ -62,3 +62,5 @@ npm install
 npm run dev
 ```
 
+The map draws the Occitanie region outline from `frontend/public/regions.geojson`. It contains all French region boundaries from [Contours administratifs on data.gouv.fr](https://www.data.gouv.fr/fr/datasets/contours-administratifs). The UI filters to Occitanie (`DREG_C_COD` / code `76`).
+

@@ -2,6 +2,7 @@
 import { onMounted, onBeforeUnmount, watch, ref, nextTick } from 'vue'
 import L from 'leaflet'
 import '@geoman-io/leaflet-geoman-free'
+import { OCCITANIE_REGION_CODE, REGION_OUTLINE_GEOJSON_URL } from '../../config/layers'
 import { loadCsv } from '../../services/csvService'
 import { parseAreaGeoJson } from '../../utils/areaGeoJson'
 import { mergeBikeRowForDisplay, formatBikeStationName } from '../../utils/bikeStationKey'
@@ -37,8 +38,10 @@ let mapResizeObserver = null
 const layerGroups = new Map()
 const layerLoadVersion = new Map()
 let drawnItems = null
+let regionOutlineLayer = null
 
 const SELECTION_COLOR = '#dc2626'
+const REGION_OUTLINE_COLOR = '#475569'
 
 const SELECTION_STYLE = {
   color: SELECTION_COLOR,
@@ -300,6 +303,41 @@ function clearSelectionLayers() {
   emitCurrentSelection()
 }
 
+function regionCode(feature) {
+  const props = feature?.properties ?? {}
+  return String(props.code ?? props.DREG_C_COD ?? '')
+}
+
+function regionOutlineStyle(feature) {
+  if (regionCode(feature) !== OCCITANIE_REGION_CODE) {
+    return { opacity: 0, fillOpacity: 0, weight: 0 }
+  }
+  return {
+    color: REGION_OUTLINE_COLOR,
+    weight: 2,
+    fillOpacity: 0,
+    interactive: false,
+  }
+}
+
+async function loadRegionOutline() {
+  if (!map) return
+  const response = await fetch(REGION_OUTLINE_GEOJSON_URL)
+  if (!response.ok) {
+    throw new Error(`Failed to load ${REGION_OUTLINE_GEOJSON_URL}: ${response.status}`)
+  }
+  const featureCollection = await response.json()
+  if (regionOutlineLayer) {
+    map.removeLayer(regionOutlineLayer)
+  }
+  regionOutlineLayer = L.geoJSON(featureCollection, {
+    style: regionOutlineStyle,
+    interactive: false,
+  })
+  regionOutlineLayer.addTo(map)
+  regionOutlineLayer.bringToBack()
+}
+
 function setupDrawing() {
   drawnItems = new L.FeatureGroup()
   map.addLayer(drawnItems)
@@ -392,6 +430,12 @@ onMounted(async () => {
     attribution: '&copy; OpenStreetMap contributors',
   }).addTo(map)
 
+  try {
+    await loadRegionOutline()
+  } catch (error) {
+    console.warn('Region outline failed to load:', error)
+  }
+
   setupDrawing()
   await syncVisibility()
   emitCurrentSelection()
@@ -460,6 +504,7 @@ onBeforeUnmount(() => {
     map.remove()
     map = null
   }
+  regionOutlineLayer = null
   drawnItems = null
   layerGroups.clear()
 })
