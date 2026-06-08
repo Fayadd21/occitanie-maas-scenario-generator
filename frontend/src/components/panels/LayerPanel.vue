@@ -457,7 +457,7 @@ function onBikeEditorInput(event) {
         :title="
           baselineReady
             ? 'Generate population for the selected area'
-            : 'Baseline is missing or incomplete — rebuild baseline first'
+            : 'Baseline is missing or incomplete - rebuild baseline first'
         "
         type="button"
         @click="emit('startGeneration')"

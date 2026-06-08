@@ -3,6 +3,11 @@ const RESOURCE_BASE = `${BACKEND_BASE}/resources`
 /** Must match backend DEFAULT_BASELINE_RUN_ID / config_occitanie.yml baseline_run_id */
 export const BASELINE_RUN_ID = 'baseline_occitanie_59510'
 
+const baselineResourceUrl = (suffix) =>
+  `${RESOURCE_BASE}/baselines/${BASELINE_RUN_ID}/${BASELINE_RUN_ID}_${suffix}`
+
+export { baselineResourceUrl }
+
 export const DEFAULT_MAP_VIEW = {
   center: [43.8, 2.2],
   zoom: 8,
@@ -30,7 +35,7 @@ export const RESOURCE_LAYERS = [
   {
     id: 'bikesharing',
     label: 'Bikesharing stations',
-    url: `${RESOURCE_BASE}/baselines/${BASELINE_RUN_ID}/${BASELINE_RUN_ID}_bikesharing_stations.csv`,
+    url: baselineResourceUrl('bikesharing_stations.csv'),
     skipCsvCache: true,
     outputSuffix: 'bikesharing_stations.csv',
     latField: 'lat',
@@ -42,7 +47,7 @@ export const RESOURCE_LAYERS = [
   {
     id: 'gtfsStops',
     label: 'GTFS stops',
-    url: `${RESOURCE_BASE}/baselines/${BASELINE_RUN_ID}/${BASELINE_RUN_ID}_gtfs_stops.csv`,
+    url: baselineResourceUrl('gtfs_stops.csv'),
     skipCsvCache: true,
     outputSuffix: 'gtfs_stops.csv',
     latField: 'stop_lat',
@@ -54,7 +59,7 @@ export const RESOURCE_LAYERS = [
   {
     id: 'carsharing',
     label: 'Carsharing stations',
-    url: `${RESOURCE_BASE}/occitanie_carsharing_stations.csv`,
+    url: baselineResourceUrl('carsharing_stations.csv'),
     outputSuffix: 'carsharing_stations.csv',
     latField: 'lat',
     lonField: 'lon',
@@ -65,7 +70,7 @@ export const RESOURCE_LAYERS = [
   {
     id: 'carpooling',
     label: 'Carpooling stops',
-    url: `${RESOURCE_BASE}/occitanie_carpooling_stops.csv`,
+    url: baselineResourceUrl('carpooling_stops.csv'),
     outputSuffix: 'carpooling_stops.csv',
     latField: 'lat',
     lonField: 'lon',
@@ -76,7 +81,7 @@ export const RESOURCE_LAYERS = [
   {
     id: 'taxiStands',
     label: 'Taxi stands',
-    url: `${RESOURCE_BASE}/occitanie_taxi_stands.csv`,
+    url: baselineResourceUrl('taxi_stands.csv'),
     outputSuffix: 'taxi_stands.csv',
     latField: 'lat',
     lonField: 'lon',
@@ -87,7 +92,7 @@ export const RESOURCE_LAYERS = [
   {
     id: 'pmrStands',
     label: 'PMR stands',
-    url: `${RESOURCE_BASE}/occitanie_pmr_stands.csv`,
+    url: baselineResourceUrl('pmr_stands.csv'),
     outputSuffix: 'pmr_stands.csv',
     latField: 'lat',
     lonField: 'lon',
@@ -98,7 +103,7 @@ export const RESOURCE_LAYERS = [
   {
     id: 'publicParking',
     label: 'Public parking',
-    url: `${RESOURCE_BASE}/occitanie_public_parking.csv`,
+    url: baselineResourceUrl('public_parking.csv'),
     outputSuffix: 'public_parking.csv',
     latField: 'lat',
     lonField: 'lon',
@@ -109,7 +114,7 @@ export const RESOURCE_LAYERS = [
   {
     id: 'parkAndRide',
     label: 'Park and ride',
-    url: `${RESOURCE_BASE}/occitanie_park_and_ride.csv`,
+    url: baselineResourceUrl('park_and_ride.csv'),
     outputSuffix: 'park_and_ride.csv',
     latField: 'lat',
     lonField: 'lon',

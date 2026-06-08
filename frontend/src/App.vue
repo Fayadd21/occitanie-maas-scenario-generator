@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, computed, watch, nextTick } from 'vue'
 import ResourceMap from './components/map/ResourceMap.vue'
 import LayerPanel from './components/panels/LayerPanel.vue'
-import { BASELINE_RUN_ID, DEFAULT_MAP_VIEW, RESOURCE_LAYERS } from './config/layers'
+import { DEFAULT_MAP_VIEW, RESOURCE_LAYERS, baselineResourceUrl } from './config/layers'
 import { useLayerVisibility } from './composables/useLayerVisibility'
 import {
   createGenerationJob,
@@ -148,9 +148,12 @@ function refreshLayersForRun(jobId, runId, files) {
       }
     }
     const suffix = baseLayer.outputSuffix
-    if (!suffix) return { ...baseLayer }
+    if (!suffix) {
+      return { ...baseLayer }
+    }
     const runFile = `${runId}_${suffix}`
     if (!available.has(runFile)) {
+      // Keep baseline URL from layers.js when this job did not materialize the layer.
       return { ...baseLayer }
     }
     return {
@@ -282,15 +285,17 @@ async function loadProfiles() {
 
 function refreshLayersAfterBaselineRebuild() {
   const stamp = Date.now()
-  const resourceBase = `${API_BASE}/resources`
   mapLayers.value = RESOURCE_LAYERS.map((layer) => {
-    if (layer.id === 'bikesharing') {
-      return {
-        ...layer,
-        url: `${resourceBase}/baselines/${BASELINE_RUN_ID}/${BASELINE_RUN_ID}_bikesharing_stations.csv?v=${stamp}`,
-      }
+    if (layer.id === 'generatedPopulation' || layer.id === 'generatedActivities') {
+      return { ...layer, url: null }
     }
-    return { ...layer }
+    if (!layer.outputSuffix) {
+      return { ...layer }
+    }
+    return {
+      ...layer,
+      url: `${baselineResourceUrl(layer.outputSuffix)}?v=${stamp}`,
+    }
   })
 }
 
