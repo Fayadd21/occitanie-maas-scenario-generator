@@ -27,6 +27,23 @@ def load_profiles_config(profiles_path: str | Path) -> dict[str, Any]:
     return data
 
 
+def latent_class_filter_restricts_pool(
+    allowed_latent_classes: list[str] | None,
+    profiles_path: str | Path | None,
+) -> bool:
+    """True when allowed_latent_classes would drop persons after assignment."""
+    if not allowed_latent_classes:
+        return False
+    allowed = {str(value).strip() for value in allowed_latent_classes if str(value).strip()}
+    if not allowed:
+        return False
+    if not profiles_path:
+        return True
+    data = load_profiles_config(profiles_path)
+    all_ids = {str(profile["id"]).strip() for profile in data.get("profiles", [])}
+    return allowed != all_ids
+
+
 def list_profile_summaries(profiles_path: str | Path) -> dict[str, Any]:
     data = load_profiles_config(profiles_path)
     profiles = data["profiles"]

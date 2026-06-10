@@ -156,32 +156,38 @@ def execute(context):
         from synthesis.profiles.loader import (
             assign_latent_classes,
             attach_home_destination_distance,
+            latent_class_filter_restricts_pool,
             profiles_reference_field,
         )
+
+        profiles_path = context.config("profiles_path")
+        population_filter_geojson = context.config("population_filter_geojson")
+        random_seed = context.config("random_seed")
+        restricts_pool = latent_class_filter_restricts_pool(allowed_latent_classes, profiles_path)
 
         df_persons, df_activities, _ = apply_population_policy(
             df_persons,
             df_activities,
             df_locations,
-            context.config("population_filter_geojson"),
+            population_filter_geojson,
             None,
             None,
             None,
             0.0,
-            context.config("random_seed"),
+            random_seed,
         )
-        households_for_assignment = _subset_households_for_persons(df_households_for_profiles, df_persons)
 
-        profiles_path = context.config("profiles_path")
-        population_filter_geojson = context.config("population_filter_geojson")
-        if profiles_path and profiles_reference_field(profiles_path, "home_destination_distance_km"):
-            df_persons = attach_home_destination_distance(df_persons, df_activities)
-        df_persons = assign_latent_classes(
-            df_persons,
-            profiles_path,
-            df_households=households_for_assignment,
-            random_seed=context.config("random_seed"),
-        )
+        if restricts_pool:
+            households_for_assignment = _subset_households_for_persons(df_households_for_profiles, df_persons)
+            if profiles_path and profiles_reference_field(profiles_path, "home_destination_distance_km"):
+                df_persons = attach_home_destination_distance(df_persons, df_activities)
+            df_persons = assign_latent_classes(
+                df_persons,
+                profiles_path,
+                df_households=households_for_assignment,
+                random_seed=random_seed,
+            )
+
         df_persons, df_activities, selected_person_ids = apply_population_policy(
             df_persons,
             df_activities,
@@ -189,10 +195,21 @@ def execute(context):
             population_filter_geojson,
             context.config("target_population"),
             context.config("target_households"),
-            allowed_latent_classes,
+            allowed_latent_classes if restricts_pool else None,
             context.config("outskirts_bias"),
-            context.config("random_seed"),
+            random_seed,
         )
+
+        if not restricts_pool:
+            households_for_assignment = _subset_households_for_persons(df_households_for_profiles, df_persons)
+            if profiles_path and profiles_reference_field(profiles_path, "home_destination_distance_km"):
+                df_persons = attach_home_destination_distance(df_persons, df_activities)
+            df_persons = assign_latent_classes(
+                df_persons,
+                profiles_path,
+                df_households=households_for_assignment,
+                random_seed=random_seed,
+            )
     else:
         df_persons, df_activities, selected_person_ids = apply_population_policy(
             df_persons,

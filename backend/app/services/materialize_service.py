@@ -12,9 +12,6 @@ from backend.app.services.bike_csv_overrides import (
 )
 from backend.app.services.constants import (
     BASELINE_STATIC_RESOURCE_SUFFIXES,
-    BIKESHARING_PATH,
-    DATA_DIR,
-    GBFS_PATH,
     baseline_artifact_path,
 )
 
@@ -86,15 +83,17 @@ def _refresh_bikesharing_stations_csv(destination_output_path: Path, run_id: str
     stations_path = destination_output_path / f"{run_id}_bikesharing_stations.csv"
     if not stations_path.exists():
         return
-    try:
-        from synthesis.output_resources import _load_bikesharing_stations
 
-        df = _load_bikesharing_stations(str(DATA_DIR), BIKESHARING_PATH, GBFS_PATH)
+    availability = bike_station_availability_from_job_record(record)
+    if not availability:
+        return
+
+    try:
+        df = pd.read_csv(stations_path, sep=";")
     except Exception:
         return
     if len(df) == 0:
         return
-    availability = bike_station_availability_from_job_record(record)
+
     df = apply_bikesharing_station_availability_to_dataframe(df, availability)
-    stations_path.parent.mkdir(parents=True, exist_ok=True)
     df.to_csv(stations_path, sep=";", index=False, lineterminator="\n")

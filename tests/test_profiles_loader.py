@@ -3,6 +3,7 @@ import pandas as pd
 from synthesis.profiles.loader import (
     assign_latent_classes,
     attach_home_destination_distance,
+    latent_class_filter_restricts_pool,
     list_profile_summaries,
     merge_household_attributes,
     preferences_for_profile,
@@ -63,6 +64,14 @@ def test_list_profile_summaries(tmp_path):
     assert all("id" in p and p["id"] for p in payload["profiles"]), "Every profile summary must include an id"
     assert payload["default_allowed"] == ["cost_efficient", "prefers_bike", "prefers_pt"]
     assert payload["latent_class_noise_std"] == 0.3
+
+
+def test_latent_class_filter_restricts_pool(tmp_path):
+    profiles_path = _sample_profiles_path(tmp_path)
+    all_classes = ["cost_efficient", "prefers_bike", "prefers_pt"]
+    assert latent_class_filter_restricts_pool(None, profiles_path) is False
+    assert latent_class_filter_restricts_pool(all_classes, profiles_path) is False
+    assert latent_class_filter_restricts_pool(["cost_efficient", "prefers_bike"], profiles_path) is True
 
 
 def test_assign_latent_classes_from_profiles(tmp_path):

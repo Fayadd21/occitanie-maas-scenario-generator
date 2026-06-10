@@ -214,8 +214,7 @@ def test_materialize_copies_baseline_gtfs_to_job_folder(monkeypatch, tmpdir):
     assert (destination / f"{run_id}_gtfs_routes.csv").exists()
 
 
-def test_materialize_overwrites_bikesharing_csv_with_loader(monkeypatch, tmpdir):
-    pytest.importorskip("geopandas")
+def test_materialize_applies_bikesharing_overrides_to_baseline_copy(monkeypatch, tmpdir):
     import pandas as pd
 
     from backend.app.services import materialize_service
@@ -225,7 +224,9 @@ def test_materialize_overwrites_bikesharing_csv_with_loader(monkeypatch, tmpdir)
     baseline_dir = Path(str(tmpdir.mkdir("baselines"))) / "baseline_test"
     baseline_dir.mkdir(parents=True)
     (baseline_dir / "baseline_test_bikesharing_stations.csv").write_text(
-        "station_id;lat;lon;capacity\n1;43.0;1.0;10\n", encoding="utf-8"
+        "station_id;lat;lon;capacity;city_id;operator;city_station_id;available_bikes\n"
+        "1;43.0;1.0;10;toulouse;op;toulouse:1;4\n",
+        encoding="utf-8",
     )
     monkeypatch.setattr(
         materialize_service,
@@ -233,27 +234,12 @@ def test_materialize_overwrites_bikesharing_csv_with_loader(monkeypatch, tmpdir)
         lambda suffix, baseline_run_id=None: baseline_dir / f"baseline_test_{suffix}",
     )
 
-    def fake_load(data_path, bikesharing_path, gbfs_path):
-        assert bikesharing_path == "bikesharing_occitanie"
-        assert gbfs_path == "gbfs"
-        return pd.DataFrame(
-            [
-                {
-                    "station_id": "1",
-                    "lat": 43.0,
-                    "lon": 1.0,
-                    "capacity": 10,
-                    "city_id": "toulouse",
-                    "operator": "op",
-                    "city_station_id": "toulouse:1",
-                    "available_bikes": 4,
-                }
-            ]
-        )
+    def fail_if_loader_called(*_args, **_kwargs):
+        raise AssertionError("_load_bikesharing_stations should not be called during materialize")
 
     monkeypatch.setattr(
         "synthesis.output_resources._load_bikesharing_stations",
-        fake_load,
+        fail_if_loader_called,
     )
 
     record = {
@@ -266,8 +252,40 @@ def test_materialize_overwrites_bikesharing_csv_with_loader(monkeypatch, tmpdir)
     materialize_service.materialize_run_outputs(record)
 
     df = pd.read_csv(destination / f"{run_id}_bikesharing_stations.csv", sep=";")
-    assert "available_bikes" in df.columns
     assert int(df["available_bikes"].iloc[0]) == 9
+
+
+def test_materialize_keeps_baseline_bikesharing_without_overrides(monkeypatch, tmpdir):
+    import pandas as pd
+
+    from backend.app.services import materialize_service
+
+    destination = Path(str(tmpdir.mkdir("destination3")))
+    run_id = "run_bike_passthrough"
+    baseline_dir = Path(str(tmpdir.mkdir("baselines2"))) / "baseline_test"
+    baseline_dir.mkdir(parents=True)
+    (baseline_dir / "baseline_test_bikesharing_stations.csv").write_text(
+        "station_id;lat;lon;capacity;city_id;operator;city_station_id;available_bikes\n"
+        "1;43.0;1.0;10;toulouse;op;toulouse:1;4\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(
+        materialize_service,
+        "baseline_artifact_path",
+        lambda suffix, baseline_run_id=None: baseline_dir / f"baseline_test_{suffix}",
+    )
+
+    record = {
+        "source_output_path": str(destination),
+        "source_output_prefix": f"{run_id}_",
+        "run_id": run_id,
+        "output_path": str(destination),
+        "bikesharing_station_availability": {},
+    }
+    materialize_service.materialize_run_outputs(record)
+
+    df = pd.read_csv(destination / f"{run_id}_bikesharing_stations.csv", sep=";")
+    assert int(df["available_bikes"].iloc[0]) == 4
 
 
 def test_normalize_gbfs_localized_text_prefers_french_label():
