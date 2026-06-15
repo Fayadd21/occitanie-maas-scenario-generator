@@ -8,6 +8,10 @@ from typing import Any
 from pydantic import BaseModel, Field
 
 
+class BaselineRebuildRequest(BaseModel):
+    target_population: int | None = None
+
+
 class JobCreateRequest(BaseModel):
     selected_area_geojson: dict[str, Any] | None = None
     config_overrides: dict[str, Any] = Field(default_factory=dict)

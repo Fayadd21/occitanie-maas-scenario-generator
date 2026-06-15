@@ -16,9 +16,17 @@ export async function getConfigProfiles() {
   return response.json()
 }
 
-export async function rebuildBaseline() {
+export async function rebuildBaseline(targetPopulation) {
+  const body =
+    targetPopulation !== null && targetPopulation !== undefined && Number.isFinite(Number(targetPopulation))
+      ? { target_population: Math.round(Number(targetPopulation)) }
+      : {}
   const response = await fetch(`${API_BASE}/baseline/rebuild`, {
     method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
   })
   if (!response.ok) {
     throw new Error(`Baseline rebuild failed: ${response.status}`)

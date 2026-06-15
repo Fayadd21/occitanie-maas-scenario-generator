@@ -2,7 +2,7 @@
 import { onBeforeUnmount, onMounted, ref, computed, watch, nextTick } from 'vue'
 import ResourceMap from './components/map/ResourceMap.vue'
 import LayerPanel from './components/panels/LayerPanel.vue'
-import { DEFAULT_MAP_VIEW, RESOURCE_LAYERS, baselineResourceUrl } from './config/layers'
+import { DEFAULT_MAP_VIEW, DEFAULT_BASELINE_RUN_ID, RESOURCE_LAYERS, baselineResourceUrl } from './config/layers'
 import { useLayerVisibility } from './composables/useLayerVisibility'
 import {
   createGenerationJob,
@@ -44,11 +44,13 @@ const jobState = ref({
   status: 'idle',
   jobId: null,
   runId: null,
+  jobType: null,
   effectiveConfig: null,
   outputs: [],
   error: null,
 })
 const baselineReady = ref(false)
+const baselineRunId = ref(DEFAULT_BASELINE_RUN_ID)
 const baselinePopulation = ref(BASELINE_TARGET_POPULATION)
 let pollTimer = null
 
@@ -242,12 +244,31 @@ async function refreshBaselineReady() {
   try {
     const defaults = await getConfigDefaults()
     baselineReady.value = Boolean(defaults.baseline_ready)
+    if (typeof defaults.baseline_run_id === 'string' && defaults.baseline_run_id.trim()) {
+      baselineRunId.value = defaults.baseline_run_id.trim()
+    }
     return defaults
   } catch (error) {
     console.warn('Could not load baseline readiness:', error)
     baselineReady.value = false
     return null
   }
+}
+
+function applyBaselineLayerUrls(runId, stamp = Date.now()) {
+  const activeRunId = runId || baselineRunId.value || DEFAULT_BASELINE_RUN_ID
+  mapLayers.value = RESOURCE_LAYERS.map((layer) => {
+    if (layer.id === 'generatedPopulation' || layer.id === 'generatedActivities') {
+      return { ...layer, url: null }
+    }
+    if (!layer.outputSuffix) {
+      return { ...layer }
+    }
+    return {
+      ...layer,
+      url: `${baselineResourceUrl(layer.outputSuffix, activeRunId)}?v=${stamp}`,
+    }
+  })
 }
 
 async function loadDefaults() {
@@ -260,6 +281,7 @@ async function loadDefaults() {
     if (Number.isFinite(Number(defaults.baseline_population)) && Number(defaults.baseline_population) > 0) {
       baselinePopulation.value = Math.round(Number(defaults.baseline_population))
     }
+    applyBaselineLayerUrls(baselineRunId.value)
     userSetTargetHouseholds.value = false
   } catch (error) {
     console.warn('Could not load backend defaults:', error)
@@ -284,19 +306,7 @@ async function loadProfiles() {
 }
 
 function refreshLayersAfterBaselineRebuild() {
-  const stamp = Date.now()
-  mapLayers.value = RESOURCE_LAYERS.map((layer) => {
-    if (layer.id === 'generatedPopulation' || layer.id === 'generatedActivities') {
-      return { ...layer, url: null }
-    }
-    if (!layer.outputSuffix) {
-      return { ...layer }
-    }
-    return {
-      ...layer,
-      url: `${baselineResourceUrl(layer.outputSuffix)}?v=${stamp}`,
-    }
-  })
+  applyBaselineLayerUrls(baselineRunId.value)
 }
 
 function stopPolling() {
@@ -309,6 +319,7 @@ function stopPolling() {
 async function refreshJob(jobId) {
   const status = await getJobStatus(jobId)
   jobState.value.status = status.status
+  jobState.value.jobType = status.job_type || null
   jobState.value.effectiveConfig = status.effective_config || null
   if (status.status === 'succeeded' || status.status === 'failed') {
     stopPolling()
@@ -326,8 +337,16 @@ async function refreshJob(jobId) {
 }
 
 async function startBaselineRebuild() {
+  if (targetPopulation.value <= 0 || !Number.isInteger(targetPopulation.value)) {
+    window.alert('Target population must be a positive integer.')
+    return
+  }
+  const plannedBaselineId = `baseline_occitanie_${targetPopulation.value}`
+  const actionLabel = baselineReady.value ? 'Rebuild' : 'Build'
   const confirmed = window.confirm(
-    'Rebuild the regional baseline? This runs full synthesis (long) and replaces the current baseline used by scenario jobs.',
+    baselineReady.value
+      ? `${actionLabel} baseline as ${plannedBaselineId}? Full synthesis (long) and replaces the current baseline.`
+      : `${actionLabel} baseline ${plannedBaselineId}? Full regional synthesis; may take a while.`,
   )
   if (!confirmed) return
 
@@ -337,11 +356,12 @@ async function startBaselineRebuild() {
       status: 'starting',
       jobId: null,
       runId: null,
+      jobType: 'baseline',
       effectiveConfig: null,
       outputs: [],
       error: null,
     }
-    const created = await rebuildBaseline()
+    const created = await rebuildBaseline(targetPopulation.value)
     jobState.value.jobId = created.job_id
     jobState.value.runId = created.run_id
     jobState.value.status = created.status
@@ -415,6 +435,7 @@ async function startGeneration() {
       status: 'starting',
       jobId: null,
       runId: null,
+      jobType: 'scenario',
       effectiveConfig: null,
       outputs: [],
       error: null,
@@ -454,6 +475,7 @@ async function startGeneration() {
       status: created.status,
       jobId: created.job_id,
       runId: created.run_id,
+      jobType: 'scenario',
       effectiveConfig: null,
       outputs: [],
       error: null,
@@ -519,6 +541,7 @@ onMounted(() => {
       :layers="mapLayers"
       :job-state="jobState"
       :baseline-ready="baselineReady"
+      :baseline-run-id="baselineRunId"
       :selection-geo-json="selectionGeoJson"
       :target-population="targetPopulation"
       :target-households="targetHouseholds"

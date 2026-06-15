@@ -4,7 +4,7 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from backend.app.models.job_models import JobCreateRequest, JobResponse
+from backend.app.models.job_models import BaselineRebuildRequest, JobCreateRequest, JobResponse
 from backend.app.services.config_service import load_defaults
 from backend.app.services.job_service import (
     create_baseline_rebuild_job,
@@ -37,8 +37,9 @@ def get_profiles() -> dict[str, Any]:
 
 
 @router.post("/baseline/rebuild", response_model=JobResponse)
-def rebuild_baseline_endpoint() -> JobResponse:
-    return create_baseline_rebuild_job()
+def rebuild_baseline_endpoint(payload: BaselineRebuildRequest | None = None) -> JobResponse:
+    request = payload or BaselineRebuildRequest()
+    return create_baseline_rebuild_job(target_population=request.target_population)
 
 
 @router.post("/jobs", response_model=JobResponse)

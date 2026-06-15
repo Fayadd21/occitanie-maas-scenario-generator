@@ -1,12 +1,10 @@
 const BACKEND_BASE = (import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000').replace(/\/$/, '')
 const RESOURCE_BASE = `${BACKEND_BASE}/resources`
-/** Must match backend DEFAULT_BASELINE_RUN_ID / config_occitanie.yml baseline_run_id */
-export const BASELINE_RUN_ID = 'baseline_occitanie_59510'
+export const DEFAULT_BASELINE_RUN_ID = 'baseline_occitanie_59510'
 
-const baselineResourceUrl = (suffix) =>
-  `${RESOURCE_BASE}/baselines/${BASELINE_RUN_ID}/${BASELINE_RUN_ID}_${suffix}`
-
-export { baselineResourceUrl }
+export function baselineResourceUrl(suffix, runId = DEFAULT_BASELINE_RUN_ID) {
+  return `${RESOURCE_BASE}/baselines/${runId}/${runId}_${suffix}`
+}
 
 export const DEFAULT_MAP_VIEW = {
   center: [43.8, 2.2],

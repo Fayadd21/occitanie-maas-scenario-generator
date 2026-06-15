@@ -5,6 +5,7 @@ from fastapi import HTTPException
 
 from backend.app.services.baseline_service import (
     BASELINE_REQUIRED_SUFFIXES,
+    baseline_run_id_for_target,
     clear_synpp_cache,
     is_baseline_ready,
     require_baseline_for_scenario,
@@ -41,6 +42,36 @@ config:
     monkeypatch.setattr(config_service, "OUTPUT_DIR", output_dir)
     monkeypatch.setattr(config_service, "PROFILES_PATH", profiles_path)
     return output_dir
+
+
+def test_baseline_run_id_for_target():
+    assert baseline_run_id_for_target(100) == "baseline_occitanie_100"
+    assert baseline_run_id_for_target(59_510) == "baseline_occitanie_59510"
+
+
+def test_build_baseline_runtime_config_uses_requested_baseline_run_id(tmp_path, monkeypatch):
+    from backend.app.services import config_service
+
+    template = tmp_path / "config_occitanie.yml"
+    template.write_text(
+        "working_directory: .\nrun:\n- synthesis.output\nconfig:\n  sampling_rate: 0.01\n  random_seed: 1234\n",
+        encoding="utf-8",
+    )
+    runtime_dir = tmp_path / "configs"
+    runtime_dir.mkdir()
+    monkeypatch.setattr(config_service, "CONFIG_TEMPLATE", template)
+    monkeypatch.setattr(config_service, "RUNTIME_CONFIG_DIR", runtime_dir)
+    monkeypatch.setattr(config_service, "OUTPUT_DIR", tmp_path / "output")
+
+    _, _, _, effective = config_service.build_baseline_runtime_config(
+        run_id="baseline_build_test",
+        target_population=100,
+        baseline_run_id="baseline_occitanie_100",
+    )
+    assert effective["baseline_run_id"] == "baseline_occitanie_100"
+    assert effective["target_population"] == 100
+    assert effective["job_type"] == "baseline"
+    assert effective["sampling_rate"] == pytest.approx(100 / 5_951_000)
 
 
 def test_is_baseline_ready_requires_population_artifacts(tmpdir, monkeypatch):

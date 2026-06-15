@@ -17,6 +17,7 @@ from fastapi import HTTPException
 
 from backend.app.models.job_models import JobCreateRequest, JobResponse, JobRuntime
 from backend.app.services.baseline_service import (
+    baseline_run_id_for_target,
     clear_synpp_cache,
     finalize_baseline_job,
     get_profiles_payload,
@@ -215,15 +216,19 @@ def create_job(payload: JobCreateRequest) -> JobResponse:
     )
 
 
-def create_baseline_rebuild_job() -> JobResponse:
+def create_baseline_rebuild_job(target_population: int | None = None) -> JobResponse:
     defaults = load_defaults()
-    target_population = int(defaults.get("target_population", 59_510))
+    resolved_target = int(target_population if target_population is not None else defaults.get("target_population", 59_510))
+    if resolved_target <= 0:
+        raise HTTPException(status_code=400, detail="target_population must be greater than 0")
+    baseline_run_id = baseline_run_id_for_target(resolved_target)
     cleared_cache_dir = clear_synpp_cache()
     job_id = uuid.uuid4().hex
     run_id = f"baseline_build_{uuid.uuid4().hex[:8]}"
     runtime_config_path, source_output_path, source_output_prefix, effective_config = build_baseline_runtime_config(
         run_id=run_id,
-        target_population=target_population,
+        target_population=resolved_target,
+        baseline_run_id=baseline_run_id,
     )
 
     log_path = LOGS_DIR / f"{job_id}.log"
@@ -253,11 +258,11 @@ def create_baseline_rebuild_job() -> JobResponse:
             "output_prefix": source_output_prefix,
             "source_output_path": str(source_output_path),
             "source_output_prefix": source_output_prefix,
-            "baseline_run_id": DEFAULT_BASELINE_RUN_ID,
+            "baseline_run_id": baseline_run_id,
             "baseline_promoted": False,
             "outputs_materialized": False,
             "effective_config": effective_config,
-            "target_population": target_population,
+            "target_population": resolved_target,
             "synpp_cache_cleared": str(cleared_cache_dir),
         },
     )

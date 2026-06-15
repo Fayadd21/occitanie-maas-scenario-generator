@@ -22,6 +22,10 @@ const props = defineProps({
     type: Boolean,
     default: false,
   },
+  baselineRunId: {
+    type: String,
+    default: '',
+  },
   targetPopulation: {
     type: Number,
     required: true,
@@ -86,20 +90,50 @@ const statusBadgeClass = computed(() => {
   return 'status-badge status-badge--neutral'
 })
 
+const isBaselineJob = computed(() => {
+  const config = props.jobState.effectiveConfig
+  return props.jobState.jobType === 'baseline' || config?.job_type === 'baseline'
+})
+
+const baselineActionLabel = computed(() => (props.baselineReady ? 'Rebuild baseline' : 'Build baseline'))
+
+const baselineActionHint = computed(() =>
+  props.baselineReady
+    ? 'Rebuild from target population (creates baseline_occitanie_N).'
+    : 'Build from target population before generating scenarios.',
+)
+
+function formatSamplingRate(value) {
+  const rate = Number(value)
+  if (!Number.isFinite(rate)) return value
+  if (rate >= 0.001) return String(rate)
+  return rate.toExponential(3)
+}
+
 const effectiveRows = computed(() => {
   const config = props.jobState.effectiveConfig
   if (!config) return []
-  return [
-    {
+  const rows = []
+  if (isBaselineJob.value) {
+    if (config.baseline_run_id) {
+      rows.push({ label: 'Baseline', value: config.baseline_run_id })
+    }
+  } else {
+    rows.push({
       label: 'Population source',
       value: config.population_source === 'full_synthesis' ? 'full synthesis' : 'baseline',
-    },
-    { label: 'Sampling', value: config.sampling_rate },
-    {
+    })
+  }
+  if (config.sampling_rate != null) {
+    rows.push({ label: 'Sampling', value: formatSamplingRate(config.sampling_rate) })
+  }
+  if (!isBaselineJob.value) {
+    rows.push({
       label: 'Random seed',
       value: config.randomize_each_run ? 'yes' : 'no',
-    },
-  ]
+    })
+  }
+  return rows
 })
 
 const copiedRunId = ref(false)
@@ -449,7 +483,10 @@ function onBikeEditorInput(event) {
         Export area GeoJSON
       </button>
       <p v-if="!baselineReady" class="selection-state baseline-hint">
-        Run <strong>Rebuild baseline</strong> before generating a scenario population.
+        Run <strong>Build baseline</strong> before generating a scenario population.
+      </p>
+      <p v-else-if="baselineRunId" class="selection-state">
+        Active baseline: <strong class="job-log-mono">{{ baselineRunId }}</strong>
       </p>
       <button
         class="generate-btn"
@@ -457,7 +494,7 @@ function onBikeEditorInput(event) {
         :title="
           baselineReady
             ? 'Generate population for the selected area'
-            : 'Baseline is missing or incomplete - rebuild baseline first'
+            : 'Baseline is missing or incomplete - build baseline first'
         "
         type="button"
         @click="emit('startGeneration')"
@@ -467,10 +504,11 @@ function onBikeEditorInput(event) {
       <button
         class="clear-btn"
         :disabled="jobBusy"
+        :title="baselineActionHint"
         type="button"
         @click="emit('rebuildBaseline')"
       >
-        Rebuild baseline
+        {{ baselineActionLabel }}
       </button>
       <button
         class="clear-btn"
@@ -496,7 +534,7 @@ function onBikeEditorInput(event) {
       </div>
 
       <p v-if="jobState.status === 'idle' && !jobState.error" class="job-log-empty">
-        No run yet. Start a scenario generation to see progress here.
+        No run yet. Build a baseline or start a scenario generation to see progress here.
       </p>
 
       <dl v-else class="job-log-details">

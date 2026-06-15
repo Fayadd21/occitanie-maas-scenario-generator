@@ -9,11 +9,16 @@ from typing import Any
 
 import yaml
 
-from backend.app.services.baseline_service import is_baseline_ready, targets_exceed_baseline
+from backend.app.services.baseline_service import (
+    count_baseline_households,
+    count_baseline_persons,
+    get_active_baseline_run_id,
+    is_baseline_ready,
+    targets_exceed_baseline,
+)
 from backend.app.services.constants import (
     CONFIG_TEMPLATE,
     CUTTER_DIR,
-    DEFAULT_BASELINE_RUN_ID,
     DEFAULTS_PATH,
     OUTPUT_DIR,
     PROFILES_PATH,
@@ -28,13 +33,12 @@ def load_defaults() -> dict[str, Any]:
         defaults = yaml.safe_load(f) or {}
     if "target_population" not in defaults:
         defaults["target_population"] = 59510
-    defaults["baseline_run_id"] = DEFAULT_BASELINE_RUN_ID
-    defaults["baseline_ready"] = is_baseline_ready()
+    active_baseline_run_id = get_active_baseline_run_id()
+    defaults["baseline_run_id"] = active_baseline_run_id
+    defaults["baseline_ready"] = is_baseline_ready(active_baseline_run_id)
     if defaults["baseline_ready"]:
-        from backend.app.services.baseline_service import count_baseline_households, count_baseline_persons
-
-        defaults["baseline_population"] = count_baseline_persons()
-        defaults["baseline_households"] = count_baseline_households()
+        defaults["baseline_population"] = count_baseline_persons(active_baseline_run_id)
+        defaults["baseline_households"] = count_baseline_households(active_baseline_run_id)
     else:
         defaults["baseline_population"] = 0
         defaults["baseline_households"] = 0
@@ -182,6 +186,7 @@ def build_baseline_runtime_config(
     run_id: str,
     *,
     target_population: int | None,
+    baseline_run_id: str,
     config_overrides: dict[str, Any] | None = None,
 ) -> tuple[Path, Path, str, dict[str, Any]]:
     if not CONFIG_TEMPLATE.exists():
@@ -211,6 +216,9 @@ def build_baseline_runtime_config(
         cfg.pop("target_population", None)
     else:
         cfg["target_population"] = int(target_population)
+        derived_rate = _derive_sampling_rate_from_targets(cfg, int(target_population), None)
+        if derived_rate is not None:
+            cfg["sampling_rate"] = derived_rate
 
     overrides = config_overrides or {}
     for key, value in overrides.items():
@@ -230,7 +238,7 @@ def build_baseline_runtime_config(
 
     effective = {
         "job_type": "baseline",
-        "baseline_run_id": DEFAULT_BASELINE_RUN_ID,
+        "baseline_run_id": baseline_run_id,
         "target_population": cfg.get("target_population"),
         "sampling_rate": cfg.get("sampling_rate"),
         "random_seed": cfg.get("random_seed"),

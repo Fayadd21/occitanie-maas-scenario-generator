@@ -25,6 +25,28 @@ BASELINE_REQUIRED_SUFFIXES = (
     "vehicles.csv",
 )
 
+BASELINE_RUN_ID_PREFIX = "baseline_occitanie_"
+
+
+def baseline_run_id_for_target(target_population: int) -> str:
+    population = int(target_population)
+    if population <= 0:
+        raise ValueError("target_population must be greater than 0")
+    return f"{BASELINE_RUN_ID_PREFIX}{population}"
+
+
+def get_active_baseline_run_id() -> str:
+    if not CONFIG_TEMPLATE.exists():
+        return DEFAULT_BASELINE_RUN_ID
+
+    with CONFIG_TEMPLATE.open("r", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+
+    run_id = (config.get("config") or {}).get("baseline_run_id")
+    if run_id and str(run_id).strip():
+        return str(run_id).strip()
+    return DEFAULT_BASELINE_RUN_ID
+
 
 def get_synpp_working_directory() -> Path:
     if not CONFIG_TEMPLATE.exists():
@@ -53,12 +75,12 @@ def clear_synpp_cache() -> Path:
 
 
 def baseline_directory(baseline_run_id: str | None = None) -> Path:
-    run_id = baseline_run_id or DEFAULT_BASELINE_RUN_ID
+    run_id = baseline_run_id or get_active_baseline_run_id()
     return BASELINES_DIR / run_id
 
 
 def count_baseline_persons(baseline_run_id: str | None = None) -> int:
-    run_id = baseline_run_id or DEFAULT_BASELINE_RUN_ID
+    run_id = baseline_run_id or get_active_baseline_run_id()
     persons_path = baseline_directory(run_id) / f"{run_id}_persons.csv"
     if not persons_path.is_file():
         return 0
@@ -68,7 +90,7 @@ def count_baseline_persons(baseline_run_id: str | None = None) -> int:
 
 
 def count_baseline_households(baseline_run_id: str | None = None) -> int:
-    run_id = baseline_run_id or DEFAULT_BASELINE_RUN_ID
+    run_id = baseline_run_id or get_active_baseline_run_id()
     households_path = baseline_directory(run_id) / f"{run_id}_households.csv"
     if not households_path.is_file():
         return 0
@@ -82,7 +104,7 @@ def targets_exceed_baseline(
     target_households: int | None,
     baseline_run_id: str | None = None,
 ) -> bool:
-    run_id = baseline_run_id or DEFAULT_BASELINE_RUN_ID
+    run_id = baseline_run_id or get_active_baseline_run_id()
     if not is_baseline_ready(run_id):
         return False
     if target_population is not None and int(target_population) > count_baseline_persons(run_id):
@@ -93,7 +115,7 @@ def targets_exceed_baseline(
 
 
 def is_baseline_ready(baseline_run_id: str | None = None) -> bool:
-    run_id = baseline_run_id or DEFAULT_BASELINE_RUN_ID
+    run_id = baseline_run_id or get_active_baseline_run_id()
     baseline_dir = baseline_directory(run_id)
     if not baseline_dir.is_dir():
         return False
@@ -106,14 +128,14 @@ def is_baseline_ready(baseline_run_id: str | None = None) -> bool:
 
 
 def require_baseline_for_scenario() -> None:
-    if is_baseline_ready():
+    run_id = get_active_baseline_run_id()
+    if is_baseline_ready(run_id):
         return
-    run_id = DEFAULT_BASELINE_RUN_ID
     raise HTTPException(
         status_code=409,
         detail=(
             f"Baseline '{run_id}' is missing or incomplete under output/baselines/. "
-            "Run Rebuild baseline in the UI or POST /baseline/rebuild before starting a scenario job."
+            "Run Build baseline in the UI or POST /baseline/rebuild before starting a scenario job."
         ),
     )
 
