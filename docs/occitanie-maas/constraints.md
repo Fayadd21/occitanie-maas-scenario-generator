@@ -224,11 +224,6 @@ Example: forbid car for persons without a licence:
       forbidden: [car]
 ```
 
-### Not supported in YAML (yet)
-
-- Per-person **random `params`** (e.g. drawing `max` walk distance from a range)
-- Automatic merge of multiple `forbidden_modes` entries into one object.
-
 ## Baseline wiring
 
 `build_baseline_runtime_config()` in `config_service.py` sets:
