@@ -33,6 +33,7 @@ def baseline_artifact_path(suffix: str, baseline_run_id: str | None = None) -> P
 BACKEND_STATE_DIR = REPO_ROOT / "backend" / "state"
 BACKEND_CONFIG_DIR = REPO_ROOT / "backend" / "config"
 PROFILES_PATH = BACKEND_CONFIG_DIR / "profiles.yml"
+CONSTRAINTS_PATH = BACKEND_CONFIG_DIR / "constraints.yml"
 BASELINES_DIR = OUTPUT_DIR / "baselines"
 JOBS_DIR = BACKEND_STATE_DIR / "jobs"
 LOGS_DIR = BACKEND_STATE_DIR / "logs"

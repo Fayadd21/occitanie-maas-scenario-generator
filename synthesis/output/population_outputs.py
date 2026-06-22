@@ -22,6 +22,16 @@ def prepare_persons(context, output_path: str, output_prefix: str, output_format
         "hts_id",
     ] + context.config("extra_enriched_attributes")
     df_persons = df_persons[columns]
+    if context.config("assign_constraints"):
+        constraints_path = context.config("constraints_path")
+        if constraints_path:
+            from synthesis.constraints.loader import assign_constraints
+
+            df_persons = assign_constraints(
+                df_persons,
+                constraints_path,
+                random_seed=int(context.config("random_seed") or 42),
+            )
     write_table(df_persons, output_path, output_prefix, "persons", output_formats)
     return df_persons
 

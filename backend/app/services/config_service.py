@@ -18,6 +18,7 @@ from backend.app.services.baseline_service import (
 )
 from backend.app.services.constants import (
     CONFIG_TEMPLATE,
+    CONSTRAINTS_PATH,
     CUTTER_DIR,
     DEFAULTS_PATH,
     OUTPUT_DIR,
@@ -211,6 +212,8 @@ def build_baseline_runtime_config(
     
     cfg.pop("assign_latent_classes", None)
     cfg.pop("profiles_path", None)
+    cfg.pop("assign_constraints", None)
+    cfg.pop("constraints_path", None)
 
     if target_population is None:
         cfg.pop("target_population", None)
@@ -224,8 +227,12 @@ def build_baseline_runtime_config(
     for key, value in overrides.items():
         cfg[key] = value
     cfg.pop("assign_latent_classes", None)
-    cfg.pop("profiles_path", None)
+    cfg.pop("assign_constraints", None)
+    cfg.pop("constraints_path", None)
 
+    cfg["profiles_path"] = str(PROFILES_PATH.resolve()).replace("\\", "/")
+    cfg["assign_constraints"] = True
+    cfg["constraints_path"] = str(CONSTRAINTS_PATH.resolve()).replace("\\", "/")
     cfg["export_static_resources"] = True
     cfg["export_trips"] = False
 
@@ -243,5 +250,7 @@ def build_baseline_runtime_config(
         "sampling_rate": cfg.get("sampling_rate"),
         "random_seed": cfg.get("random_seed"),
         "export_static_resources": cfg.get("export_static_resources"),
+        "assign_constraints": cfg.get("assign_constraints"),
+        "constraints_path": cfg.get("constraints_path"),
     }
     return runtime_config_path, base_output_path, base_output_prefix, effective

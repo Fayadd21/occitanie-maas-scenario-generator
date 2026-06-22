@@ -421,6 +421,7 @@ def get_job_scenario_export(job_id: str) -> dict[str, Any]:
         )
 
     person_to_latent_class: dict[str, str] = {}
+    person_to_constraints: dict[str, list[dict[str, Any]]] = {}
     all_person_ids: set[str] = set()
     if "person_id" in df_persons.columns:
         all_person_ids = set(df_persons["person_id"].astype(str).tolist())
@@ -428,12 +429,24 @@ def get_job_scenario_export(job_id: str) -> dict[str, Any]:
         person_to_latent_class = {
             str(row["person_id"]): str(row["latent_class"]) for _, row in latent_df.iterrows()
         }
+        if "constraints" in df_persons.columns:
+            from synthesis.constraints.loader import parse_person_constraints
 
-    persons_export = df_persons.where(pd.notna(df_persons), None).to_dict(orient="records")
+            for _, row in df_persons.iterrows():
+                person_id = str(row["person_id"])
+                person_to_constraints[person_id] = parse_person_constraints(row.get("constraints"))
+
+    persons_export_df = df_persons.copy()
+    if "constraints" in persons_export_df.columns:
+        from synthesis.constraints.loader import parse_person_constraints
+
+        persons_export_df["constraints"] = persons_export_df["constraints"].map(parse_person_constraints)
+    persons_export = persons_export_df.where(pd.notna(persons_export_df), None).to_dict(orient="records")
     requests = _build_requests(
         df_activities,
         gdf_activities,
         person_to_latent_class,
+        person_to_constraints=person_to_constraints,
         profiles_path=profiles_path,
     )
     bike_station_availability = bike_station_availability_from_job_record(record)
@@ -480,6 +493,7 @@ def _build_requests(
     gdf_activities: gpd.GeoDataFrame,
     person_to_latent_class: dict[str, str],
     *,
+    person_to_constraints: dict[str, list[dict[str, Any]]] | None = None,
     profiles_path: Path,
 ) -> list[dict[str, Any]]:
     if len(df_activities) == 0:
@@ -512,6 +526,7 @@ def _build_requests(
 
         person_id = str(group.iloc[0]["person_id"])
         latent_class = person_to_latent_class.get(person_id)
+        constraints = (person_to_constraints or {}).get(person_id, [])
         ordered = group.sort_values("activity_index").reset_index(drop=True)
 
         for leg_idx in range(len(ordered) - 1):
@@ -567,7 +582,7 @@ def _build_requests(
                         latent_class,
                         profiles_path,
                     ),
-                    "constraints": [],
+                    "constraints": constraints,
                     "latent_class": latent_class,
                 }
             )
@@ -582,6 +597,103 @@ def _resolve_scenario_resource_path(output_path: Path, run_id: str, suffix: str)
     if baseline_path.is_file():
         return baseline_path
     return job_path
+
+
+def _format_scenario_capacity(raw: Any, default: str = "inf") -> str:
+    if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+        return default
+    try:
+        value = int(float(raw))
+    except (TypeError, ValueError):
+        return default
+    return str(value) if value >= 0 else default
+
+
+def _scenario_row_resource_key(
+    row: pd.Series,
+    key_columns: tuple[str, ...],
+    lat: float,
+    lon: float,
+    prefix: str,
+) -> str:
+    for column in key_columns:
+        if column in row.index:
+            value = row.get(column)
+            if value is not None and not pd.isna(value) and str(value).strip():
+                return str(value).strip()
+    return _hash_point(lat, lon, prefix)
+
+
+def _append_scenario_point_operator(
+    resources: dict[str, Any],
+    *,
+    operator_id: str,
+    mode_id: str,
+    point_kind: str,
+    operator_resources: list[dict[str, Any]],
+    operator_points: list[dict[str, Any]],
+) -> None:
+    if not operator_resources:
+        return
+    resources[operator_id] = {
+        "modes": [
+            {
+                "id": mode_id,
+                "operator_id": operator_id,
+                "free": False,
+                "restricted_to": [],
+            }
+        ],
+        "resources": operator_resources,
+        "points": operator_points,
+        "positions": [],
+        "timetables": [],
+    }
+
+
+def _load_scenario_point_layer_from_csv(
+    csv_path: Path,
+    *,
+    operator_id: str,
+    mode_id: str,
+    point_kind: str,
+    resource_id_prefix: str,
+    key_columns: tuple[str, ...],
+    capacity_column: str | None = None,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    if not csv_path.is_file():
+        return [], []
+
+    df = pd.read_csv(csv_path, sep=";")
+    if not {"lat", "lon"}.issubset(df.columns):
+        return [], []
+
+    resources: list[dict[str, Any]] = []
+    points: list[dict[str, Any]] = []
+    for _, row in df.dropna(subset=["lat", "lon"]).iterrows():
+        lat = float(row["lat"])
+        lon = float(row["lon"])
+        resource_key = _scenario_row_resource_key(
+            row, key_columns, lat, lon, f"{resource_id_prefix}:{operator_id}"
+        )
+        point_id = _hash_point(lat, lon, f"{point_kind}:{resource_key}")
+        resources.append(
+            {
+                "id": f"{resource_id_prefix}:{resource_key}",
+                "mode": mode_id,
+                "capacity": _format_scenario_capacity(row.get(capacity_column)) if capacity_column else "inf",
+                "operator_id": operator_id,
+            }
+        )
+        points.append(
+            {
+                "id": point_id,
+                "lat": lat,
+                "lon": lon,
+                "kind": point_kind,
+            }
+        )
+    return resources, points
 
 
 def _build_resources(
@@ -805,5 +917,33 @@ def _build_resources(
             "positions": [],
             "timetables": [],
         }
+
+    extra_layers = (
+        ("carsharing_stations.csv", "Carsharing", "Carsharing", "carsharing_station", "car_station", ("station_id",), "capacity"),
+        ("carpooling_stops.csv", "Carpooling", "Carpooling", "carpooling_stop", "carpool_stop", ("id_local",), "nbre_pl"),
+        ("taxi_stands.csv", "Taxi", "Taxi", "taxi_stand", "taxi_stand", ("name", "source_file"), "nb_places"),
+        ("pmr_stands.csv", "PMR", "PMR", "pmr_stand", "pmr_stand", ("name", "source_file"), "nb_places"),
+        ("public_parking.csv", "Parking", "Parking", "parking", "parking", ("parking_id",), "total_spaces"),
+        ("park_and_ride.csv", "ParkAndRide", "ParkAndRide", "park_and_ride", "park_and_ride", ("parking_id",), "park_and_ride_spaces"),
+    )
+    for suffix, operator_id, mode_id, point_kind, resource_prefix, key_columns, capacity_column in extra_layers:
+        csv_path = _resolve_scenario_resource_path(output_path, run_id, suffix)
+        layer_resources, layer_points = _load_scenario_point_layer_from_csv(
+            csv_path,
+            operator_id=operator_id,
+            mode_id=mode_id,
+            point_kind=point_kind,
+            resource_id_prefix=resource_prefix,
+            key_columns=key_columns,
+            capacity_column=capacity_column,
+        )
+        _append_scenario_point_operator(
+            resources,
+            operator_id=operator_id,
+            mode_id=mode_id,
+            point_kind=point_kind,
+            operator_resources=layer_resources,
+            operator_points=layer_points,
+        )
 
     return resources
