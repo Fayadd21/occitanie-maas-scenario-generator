@@ -8,6 +8,9 @@ sleep_time = 5 # seconds
 timeout = 30 # seconds
 retries = 3
 
+def _status_available(status):
+    return isinstance(status, int) and 200 <= status < 400
+
 class Report:
     def __init__(self):
         self.sources = []
@@ -30,8 +33,8 @@ class Report:
                     try:
                         response = session.head(source["url"], timeout = timeout)
                         source["status"] = response.status_code
-                        success = True
-                    except TimeoutError:
+                        success = _status_available(source["status"])
+                    except requests.exceptions.Timeout:
                         source["status"] = "timeout"
                     except Exception as e:
                         source["status"] = "error"
@@ -42,7 +45,7 @@ class Report:
                     
                     time.sleep(sleep_time)
 
-                if source["status"] != 200:
+                if not _status_available(source["status"]):
                     failed.append(source["name"])
         
         print("Done.")
