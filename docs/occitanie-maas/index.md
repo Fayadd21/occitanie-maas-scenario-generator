@@ -24,6 +24,7 @@ gathering-the-data.md
 data-layout.md
 quickstart.md
 profiles-and-latent-classes.md
+constraints.md
 baseline-and-scenarios.md
 api-and-outputs.md
 unit-tests.md

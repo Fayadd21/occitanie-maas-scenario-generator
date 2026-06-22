@@ -40,14 +40,17 @@ to run rebuild baseline first.
 
 `output/jobs/<run_id>/`:
 
-- `<run_id>_persons.csv` (`latent_class` on scenario runs)
+- `<run_id>_persons.csv` (`latent_class` on scenario runs; `constraints` JSON from baseline)
 - `<run_id>_activities.csv`, `<run_id>_activities.gpkg`
 - `<run_id>_households.csv`
 - resource CSVs when exported (bikes, GTFS, ...)
 
 ## scenario.json
 
-Contains `persons`, `requests` (activity chains with preferences per class), `resources`,
-and `profiles_path`. Returns 409 if persons lack `latent_class`.
+Contains `persons`, `requests` (activity chains with preferences per class and
+`constraints` per leg), `resources`, and `profiles_path`. Returns 409 if persons lack
+`latent_class`.
+
+Constraint assignment is documented in [Person constraints](constraints.md).
 
 Runtime YAML per job is written under the backend runtime config directory (`config_service`).

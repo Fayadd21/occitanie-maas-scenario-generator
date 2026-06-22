@@ -169,12 +169,14 @@ household share it):
 Copy codes from `*_households.csv` in your baseline or run output. Strings and
 numbers both match (`31555` in CSV works with `"31555"` in YAML).
 
-**Home-to-destination distance**:
+**Home-to-destination distance** (straight-line haversine × 1.3 circuity factor):
 
 ```yaml
 - { field: home_destination_distance_km, op: "<", value: 5, points: 2 }
 - { field: home_destination_distance_km, op: ">", value: 25, points: 1 }
 ```
+
+Thresholds are in **approximate road kilometres**, not raw crow-fly distance.
 
 If a rule references a column that is missing after the merge, the job fails with
 `KeyError: Missing field for profile rules: ...`.
