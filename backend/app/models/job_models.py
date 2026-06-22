@@ -12,6 +12,10 @@ class BaselineRebuildRequest(BaseModel):
     target_population: int | None = None
 
 
+class BaselineSelectRequest(BaseModel):
+    baseline_run_id: str
+
+
 class JobCreateRequest(BaseModel):
     selected_area_geojson: dict[str, Any] | None = None
     config_overrides: dict[str, Any] = Field(default_factory=dict)

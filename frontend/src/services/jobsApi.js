@@ -16,6 +16,37 @@ export async function getConfigProfiles() {
   return response.json()
 }
 
+export async function getAvailableBaselines() {
+  const response = await fetch(`${API_BASE}/config/baselines`)
+  if (!response.ok) {
+    throw new Error(`Baseline list failed: ${response.status}`)
+  }
+  return response.json()
+}
+
+export async function setActiveBaseline(baselineRunId) {
+  const response = await fetch(`${API_BASE}/config/baseline`, {
+    method: 'PUT',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ baseline_run_id: baselineRunId }),
+  })
+  if (!response.ok) {
+    let detail = `Baseline selection failed: ${response.status}`
+    try {
+      const payload = await response.json()
+      if (payload?.detail) {
+        detail = typeof payload.detail === 'string' ? payload.detail : detail
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail)
+  }
+  return response.json()
+}
+
 export async function rebuildBaseline(targetPopulation) {
   const body =
     targetPopulation !== null && targetPopulation !== undefined && Number.isFinite(Number(targetPopulation))

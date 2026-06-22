@@ -140,6 +140,58 @@ def require_baseline_for_scenario() -> None:
     )
 
 
+def list_available_baselines() -> list[dict[str, Any]]:
+    active_id = get_active_baseline_run_id()
+    baselines: list[dict[str, Any]] = []
+    if not BASELINES_DIR.is_dir():
+        return baselines
+
+    for path in BASELINES_DIR.iterdir():
+        if not path.is_dir():
+            continue
+        run_id = path.name
+        if not run_id.startswith(BASELINE_RUN_ID_PREFIX):
+            continue
+        ready = is_baseline_ready(run_id)
+        baselines.append(
+            {
+                "baseline_run_id": run_id,
+                "ready": ready,
+                "active": run_id == active_id,
+                "population": count_baseline_persons(run_id) if ready else 0,
+                "households": count_baseline_households(run_id) if ready else 0,
+            }
+        )
+
+    baselines.sort(
+        key=lambda item: (
+            not bool(item["ready"]),
+            -int(item["population"]),
+            str(item["baseline_run_id"]),
+        )
+    )
+    return baselines
+
+
+def set_active_baseline(baseline_run_id: str) -> dict[str, Any]:
+    run_id = str(baseline_run_id).strip()
+    if not run_id:
+        raise HTTPException(status_code=400, detail="baseline_run_id is required")
+    if not is_baseline_ready(run_id):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Baseline '{run_id}' is missing or incomplete under output/baselines/.",
+        )
+    baseline_run_path = baseline_directory(run_id).resolve()
+    update_occitanie_baseline_pointer(run_id, baseline_run_path)
+    return {
+        "baseline_run_id": run_id,
+        "baseline_ready": True,
+        "baseline_population": count_baseline_persons(run_id),
+        "baseline_households": count_baseline_households(run_id),
+    }
+
+
 def promote_synpp_output_to_baseline(
     *,
     source_output_path: Path,

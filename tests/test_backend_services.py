@@ -1,6 +1,7 @@
 from pathlib import Path
 
 import pytest
+import yaml
 from fastapi import HTTPException
 
 from backend.app.services.baseline_service import (
@@ -72,6 +73,8 @@ def test_build_baseline_runtime_config_uses_requested_baseline_run_id(tmp_path, 
     assert effective["target_population"] == 100
     assert effective["job_type"] == "baseline"
     assert effective["sampling_rate"] == pytest.approx(100 / 5_951_000)
+    assert effective["assign_constraints"] is True
+    assert effective["constraints_path"]
 
 
 def test_is_baseline_ready_requires_population_artifacts(tmpdir, monkeypatch):
@@ -87,6 +90,69 @@ def test_is_baseline_ready_requires_population_artifacts(tmpdir, monkeypatch):
         (baseline_dir / f"{baseline_dir.name}_{suffix}").write_text("x", encoding="utf-8")
 
     assert is_baseline_ready(baseline_dir.name) is True
+
+
+def test_list_available_baselines_marks_active_and_ready(tmpdir, monkeypatch):
+    from backend.app.services import baseline_service
+
+    baselines_root = Path(str(tmpdir.mkdir("baselines")))
+    ready_dir = baselines_root / "baseline_occitanie_100"
+    ready_dir.mkdir()
+    incomplete_dir = baselines_root / "baseline_occitanie_200"
+    incomplete_dir.mkdir()
+
+    monkeypatch.setattr(baseline_service, "BASELINES_DIR", baselines_root)
+    monkeypatch.setattr(baseline_service, "get_active_baseline_run_id", lambda: "baseline_occitanie_100")
+    monkeypatch.setattr(
+        baseline_service,
+        "is_baseline_ready",
+        lambda run_id: run_id == "baseline_occitanie_100",
+    )
+    monkeypatch.setattr(baseline_service, "count_baseline_persons", lambda run_id: 100 if run_id == "baseline_occitanie_100" else 0)
+    monkeypatch.setattr(baseline_service, "count_baseline_households", lambda run_id: 50 if run_id == "baseline_occitanie_100" else 0)
+
+    baselines = baseline_service.list_available_baselines()
+    assert len(baselines) == 2
+    ready = next(item for item in baselines if item["baseline_run_id"] == "baseline_occitanie_100")
+    incomplete = next(item for item in baselines if item["baseline_run_id"] == "baseline_occitanie_200")
+    assert ready["ready"] is True
+    assert ready["active"] is True
+    assert ready["population"] == 100
+    assert incomplete["ready"] is False
+    assert incomplete["active"] is False
+
+
+def test_set_active_baseline_updates_config(tmpdir, monkeypatch):
+    from backend.app.services import baseline_service
+
+    baselines_root = Path(str(tmpdir.mkdir("baselines")))
+    run_id = "baseline_occitanie_59510"
+    baseline_dir = baselines_root / run_id
+    baseline_dir.mkdir()
+    for suffix in BASELINE_REQUIRED_SUFFIXES:
+        (baseline_dir / f"{run_id}_{suffix}").write_text("x", encoding="utf-8")
+
+    config_path = Path(str(tmpdir / "config_occitanie.yml"))
+    config_path.write_text(
+        "config:\n  baseline_run_id: baseline_occitanie_100\n  baseline_run_path: /old/path\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(baseline_service, "BASELINES_DIR", baselines_root)
+    monkeypatch.setattr(baseline_service, "CONFIG_TEMPLATE", config_path)
+    from backend.app.services import constants
+
+    monkeypatch.setattr(constants, "CONFIG_TEMPLATE", config_path)
+    monkeypatch.setattr(baseline_service, "count_baseline_persons", lambda *_args, **_kwargs: 59510)
+    monkeypatch.setattr(baseline_service, "count_baseline_households", lambda *_args, **_kwargs: 29800)
+
+    result = baseline_service.set_active_baseline(run_id)
+    assert result["baseline_run_id"] == run_id
+    assert result["baseline_population"] == 59510
+
+    saved = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+    assert saved["config"]["baseline_run_id"] == run_id
+    assert str(baseline_dir.resolve()).replace("\\", "/") == saved["config"]["baseline_run_path"]
 
 
 def test_require_baseline_for_scenario_raises_when_missing(monkeypatch):

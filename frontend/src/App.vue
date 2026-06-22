@@ -9,9 +9,11 @@ import {
   downloadScenarioExport,
   getConfigDefaults,
   getConfigProfiles,
+  getAvailableBaselines,
   getJobStatus,
   getJobOutputs,
   rebuildBaseline,
+  setActiveBaseline,
 } from './services/jobsApi'
 import {
   bikeStationKeyFromRow,
@@ -52,6 +54,7 @@ const jobState = ref({
 const baselineReady = ref(false)
 const baselineRunId = ref(DEFAULT_BASELINE_RUN_ID)
 const baselinePopulation = ref(BASELINE_TARGET_POPULATION)
+const availableBaselines = ref([])
 let pollTimer = null
 
 const bikeAvailabilityOverrides = ref({})
@@ -247,11 +250,58 @@ async function refreshBaselineReady() {
     if (typeof defaults.baseline_run_id === 'string' && defaults.baseline_run_id.trim()) {
       baselineRunId.value = defaults.baseline_run_id.trim()
     }
+    if (Number.isFinite(Number(defaults.baseline_population)) && Number(defaults.baseline_population) > 0) {
+      baselinePopulation.value = Math.round(Number(defaults.baseline_population))
+    }
     return defaults
   } catch (error) {
     console.warn('Could not load baseline readiness:', error)
     baselineReady.value = false
     return null
+  }
+}
+
+async function loadBaselines() {
+  try {
+    const payload = await getAvailableBaselines()
+    availableBaselines.value = Array.isArray(payload.baselines) ? payload.baselines : []
+    if (typeof payload.baseline_run_id === 'string' && payload.baseline_run_id.trim()) {
+      baselineRunId.value = payload.baseline_run_id.trim()
+    }
+    const active = availableBaselines.value.find((item) => item.active && item.ready)
+    if (active) {
+      baselineReady.value = true
+      if (active.population > 0) {
+        baselinePopulation.value = Math.round(Number(active.population))
+      }
+    }
+  } catch (error) {
+    console.warn('Could not load baselines:', error)
+    availableBaselines.value = []
+  }
+}
+
+async function selectBaseline(nextBaselineRunId) {
+  const nextId = String(nextBaselineRunId || '').trim()
+  if (!nextId || nextId === baselineRunId.value) {
+    return
+  }
+  if (jobState.value.status === 'running' || jobState.value.status === 'starting') {
+    window.alert('Wait for the current run to finish before switching baseline.')
+    return
+  }
+  try {
+    const result = await setActiveBaseline(nextId)
+    baselineRunId.value = result.baseline_run_id
+    baselineReady.value = Boolean(result.baseline_ready)
+    if (Number.isFinite(Number(result.baseline_population)) && Number(result.baseline_population) > 0) {
+      baselinePopulation.value = Math.round(Number(result.baseline_population))
+    }
+    applyBaselineLayerUrls(baselineRunId.value)
+    await loadBaselines()
+  } catch (error) {
+    window.alert(error.message || 'Could not switch baseline.')
+    await loadBaselines()
   }
 }
 
@@ -278,9 +328,7 @@ async function loadDefaults() {
     if (Number.isFinite(Number(defaults.target_population))) {
       targetPopulation.value = Math.max(1, Math.round(Number(defaults.target_population)))
     }
-    if (Number.isFinite(Number(defaults.baseline_population)) && Number(defaults.baseline_population) > 0) {
-      baselinePopulation.value = Math.round(Number(defaults.baseline_population))
-    }
+    await loadBaselines()
     applyBaselineLayerUrls(baselineRunId.value)
     userSetTargetHouseholds.value = false
   } catch (error) {
@@ -327,6 +375,7 @@ async function refreshJob(jobId) {
       if (status.job_type === 'baseline') {
         refreshLayersAfterBaselineRebuild()
         await refreshBaselineReady()
+        await loadBaselines()
       } else {
         const outputs = await getJobOutputs(jobId)
         jobState.value.outputs = outputs.files || []
@@ -383,54 +432,67 @@ async function startGeneration() {
   if (!baselineReady.value) {
     return
   }
+  if (targetPopulation.value <= 0) {
+    const message = 'Target population must be greater than 0.'
+    window.alert(message)
+    jobState.value.error = message
+    return
+  }
+  if (!Number.isInteger(targetPopulation.value)) {
+    const message = 'Target population must be an integer.'
+    window.alert(message)
+    jobState.value.error = message
+    return
+  }
+  if (targetHouseholds.value !== null && targetHouseholds.value <= 0) {
+    const message = 'Target households must be greater than 0.'
+    window.alert(message)
+    jobState.value.error = message
+    return
+  }
+  if (targetHouseholds.value !== null && !Number.isInteger(targetHouseholds.value)) {
+    const message = 'Target households must be an integer.'
+    window.alert(message)
+    jobState.value.error = message
+    return
+  }
+  if (targetHouseholds.value !== null && targetHouseholds.value > targetPopulation.value) {
+    const message = 'Target households cannot be greater than target population.'
+    window.alert(message)
+    jobState.value.error = message
+    return
+  }
+  if (
+    targetHouseholds.value !== null &&
+    targetPopulation.value > targetHouseholds.value * MAX_HOUSEHOLD_SIZE
+  ) {
+    const message = `Target population looks incoherent with households. With ${targetHouseholds.value} households and a max household size of ${MAX_HOUSEHOLD_SIZE}, maximum coherent population is ${targetHouseholds.value * MAX_HOUSEHOLD_SIZE}.`
+    window.alert(message)
+    jobState.value.error = message
+    return
+  }
+  if (!Array.isArray(allowedLatentClasses.value) || allowedLatentClasses.value.length === 0) {
+    const message = 'At least one latent class must be selected.'
+    window.alert(message)
+    jobState.value.error = message
+    return
+  }
+
+  const requestedTargetPopulation = targetPopulation.value
+  const requestedTargetHouseholds = userSetTargetHouseholds.value ? targetHouseholds.value : null
+  if (requestedTargetPopulation > baselinePopulation.value) {
+    const proceed = window.confirm(
+      `Target population (${requestedTargetPopulation}) is larger than the current baseline (${baselinePopulation.value}). ` +
+        'A full regional synthesis will run. This can take a long time. Continue?',
+    )
+    if (!proceed) {
+      return
+    }
+  }
+
   try {
     stopPolling()
     resetLayersToDefaultOutputs()
-    if (targetPopulation.value <= 0) {
-      const message = 'Target population must be greater than 0.'
-      window.alert(message)
-      jobState.value.error = message
-      return
-    }
-    if (!Number.isInteger(targetPopulation.value)) {
-      const message = 'Target population must be an integer.'
-      window.alert(message)
-      jobState.value.error = message
-      return
-    }
-    if (targetHouseholds.value !== null && targetHouseholds.value <= 0) {
-      const message = 'Target households must be greater than 0.'
-      window.alert(message)
-      jobState.value.error = message
-      return
-    }
-    if (targetHouseholds.value !== null && !Number.isInteger(targetHouseholds.value)) {
-      const message = 'Target households must be an integer.'
-      window.alert(message)
-      jobState.value.error = message
-      return
-    }
-    if (targetHouseholds.value !== null && targetHouseholds.value > targetPopulation.value) {
-      const message = 'Target households cannot be greater than target population.'
-      window.alert(message)
-      jobState.value.error = message
-      return
-    }
-    if (
-      targetHouseholds.value !== null &&
-      targetPopulation.value > targetHouseholds.value * MAX_HOUSEHOLD_SIZE
-    ) {
-      const message = `Target population looks incoherent with households. With ${targetHouseholds.value} households and a max household size of ${MAX_HOUSEHOLD_SIZE}, maximum coherent population is ${targetHouseholds.value * MAX_HOUSEHOLD_SIZE}.`
-      window.alert(message)
-      jobState.value.error = message
-      return
-    }
-    if (!Array.isArray(allowedLatentClasses.value) || allowedLatentClasses.value.length === 0) {
-      const message = 'At least one latent class must be selected.'
-      window.alert(message)
-      jobState.value.error = message
-      return
-    }
     jobState.value = {
       status: 'starting',
       jobId: null,
@@ -439,17 +501,6 @@ async function startGeneration() {
       effectiveConfig: null,
       outputs: [],
       error: null,
-    }
-    const requestedTargetPopulation = targetPopulation.value
-    const requestedTargetHouseholds = userSetTargetHouseholds.value ? targetHouseholds.value : null
-    if (requestedTargetPopulation > baselinePopulation.value) {
-      const proceed = window.confirm(
-        `Target population (${requestedTargetPopulation}) is larger than the current baseline (${baselinePopulation.value}). ` +
-          'A full regional synthesis will run. This can take a long time. Continue?',
-      )
-      if (!proceed) {
-        return
-      }
     }
     const strictModeEnabled = shouldAutoEnableStrictMode()
     const samplingRateOverride = strictModeEnabled ? null : BASELINE_SAMPLING_RATE
@@ -542,6 +593,7 @@ onMounted(() => {
       :job-state="jobState"
       :baseline-ready="baselineReady"
       :baseline-run-id="baselineRunId"
+      :available-baselines="availableBaselines"
       :selection-geo-json="selectionGeoJson"
       :target-population="targetPopulation"
       :target-households="targetHouseholds"
@@ -556,6 +608,7 @@ onMounted(() => {
       @clear-selection="clearSelection"
       @start-generation="startGeneration"
       @rebuild-baseline="startBaselineRebuild"
+      @select-baseline="selectBaseline"
       @export-scenario="exportScenario"
       @update:target-population="setTargetPopulation"
       @update:target-households="setTargetHouseholds"

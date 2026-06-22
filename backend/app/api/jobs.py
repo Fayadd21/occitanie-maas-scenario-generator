@@ -4,7 +4,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException
 
-from backend.app.models.job_models import BaselineRebuildRequest, JobCreateRequest, JobResponse
+from backend.app.models.job_models import BaselineRebuildRequest, BaselineSelectRequest, JobCreateRequest, JobResponse
+from backend.app.services.baseline_service import list_available_baselines, set_active_baseline
 from backend.app.services.config_service import load_defaults
 from backend.app.services.job_service import (
     create_baseline_rebuild_job,
@@ -34,6 +35,21 @@ def get_defaults() -> dict[str, Any]:
 @router.get("/config/profiles")
 def get_profiles() -> dict[str, Any]:
     return get_profiles_config()
+
+
+@router.get("/config/baselines")
+def get_baselines() -> dict[str, Any]:
+    baselines = list_available_baselines()
+    active = next((item for item in baselines if item.get("active")), None)
+    return {
+        "baselines": baselines,
+        "baseline_run_id": active["baseline_run_id"] if active else None,
+    }
+
+
+@router.put("/config/baseline")
+def select_baseline(payload: BaselineSelectRequest) -> dict[str, Any]:
+    return set_active_baseline(payload.baseline_run_id)
 
 
 @router.post("/baseline/rebuild", response_model=JobResponse)

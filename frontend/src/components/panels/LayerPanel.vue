@@ -26,6 +26,10 @@ const props = defineProps({
     type: String,
     default: '',
   },
+  availableBaselines: {
+    type: Array,
+    default: () => [],
+  },
   targetPopulation: {
     type: Number,
     required: true,
@@ -69,6 +73,12 @@ const jobBusy = computed(
 )
 
 const generateDisabled = computed(() => !props.baselineReady || jobBusy.value)
+
+const readyBaselines = computed(() =>
+  props.availableBaselines.filter((item) => item && item.ready && item.baseline_run_id),
+)
+
+const baselineSelectDisabled = computed(() => jobBusy.value || readyBaselines.value.length === 0)
 
 const STATUS_LABELS = {
   idle: 'Idle',
@@ -156,6 +166,7 @@ const emit = defineEmits([
   'clearSelection',
   'startGeneration',
   'rebuildBaseline',
+  'selectBaseline',
   'exportScenario',
   'importAreaGeojson',
   'downloadSelectionGeojson',
@@ -169,6 +180,19 @@ const emit = defineEmits([
   'apply-bike-override',
   'reset-bike-override',
 ])
+
+function baselineOptionLabel(item) {
+  const population = Number(item.population)
+  const populationLabel = Number.isFinite(population) && population > 0 ? ` · ${population.toLocaleString()} persons` : ''
+  return `${item.baseline_run_id}${populationLabel}`
+}
+
+function onBaselineSelect(event) {
+  const value = event.target.value
+  if (value && value !== props.baselineRunId) {
+    emit('selectBaseline', value)
+  }
+}
 
 const importGeoJsonInput = ref(null)
 
@@ -482,12 +506,29 @@ function onBikeEditorInput(event) {
       >
         Export area GeoJSON
       </button>
-      <p v-if="!baselineReady" class="selection-state baseline-hint">
+      <p v-if="!baselineReady && readyBaselines.length === 0" class="selection-state baseline-hint">
         Run <strong>Build baseline</strong> before generating a scenario population.
       </p>
-      <p v-else-if="baselineRunId" class="selection-state">
-        Active baseline: <strong class="job-log-mono">{{ baselineRunId }}</strong>
-      </p>
+      <label v-else class="target-input-wrap">
+        <span class="target-label">Active baseline</span>
+        <select
+          class="target-input baseline-select"
+          :value="baselineRunId"
+          :disabled="baselineSelectDisabled"
+          @change="onBaselineSelect"
+        >
+          <option v-if="readyBaselines.length === 0" disabled value="">
+            No ready baseline
+          </option>
+          <option
+            v-for="item in readyBaselines"
+            :key="item.baseline_run_id"
+            :value="item.baseline_run_id"
+          >
+            {{ baselineOptionLabel(item) }}
+          </option>
+        </select>
+      </label>
       <button
         class="generate-btn"
         :disabled="generateDisabled"
@@ -1003,6 +1044,19 @@ input {
 .target-input:focus-visible {
   border-color: #64748b;
   box-shadow: 0 0 0 3px rgba(148, 163, 184, 0.35);
+}
+
+.target-input:focus-visible {
+  outline: 2px solid #2563eb;
+  outline-offset: 1px;
+}
+
+.baseline-select {
+  cursor: pointer;
+}
+
+.baseline-select:disabled {
+  cursor: not-allowed;
 }
 
 .checkbox-wrap {
