@@ -288,9 +288,26 @@ def execute(context):
             if prefilter_person_ids:
                 df_activities = df_activities[df_activities["person_id"].isin(prefilter_person_ids)].copy()
 
-        if needs_geometry_for_profiles(df_persons, assign_latent_classes_enabled, profiles_path):
-            profile_geometry = load_geometry_for_home_distance(activities_gpkg_path, prefilter_person_ids)
+        if (
+            population_filter_geojson
+            or needs_geometry_for_profiles(df_persons, assign_latent_classes_enabled, profiles_path)
+        ):
+            if population_filter_geojson:
+                profile_geometry = _load_baseline_geometry(activities_gpkg_path, prefilter_person_ids)
+            else:
+                profile_geometry = load_geometry_for_home_distance(activities_gpkg_path, prefilter_person_ids)
             df_activities = _merge_activity_geometry(df_activities, profile_geometry)
+            if population_filter_geojson:
+                import geopandas as gpd
+
+                if isinstance(profile_geometry, gpd.GeoDataFrame):
+                    df_locations = profile_geometry.copy()
+                else:
+                    df_locations = gpd.GeoDataFrame(
+                        profile_geometry,
+                        geometry="geometry",
+                        crs="EPSG:4326",
+                    )
 
     allowed_latent_classes = context.config("allowed_latent_classes")
 
