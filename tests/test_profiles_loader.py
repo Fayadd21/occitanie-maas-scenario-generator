@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 
 from synthesis.profiles.loader import (
     assign_latent_classes,
@@ -149,6 +150,28 @@ class _Point:
     def __init__(self, x: float, y: float) -> None:
         self.x = x
         self.y = y
+
+
+def test_attach_home_destination_distance_applies_circuity_factor():
+    df_persons = pd.DataFrame([{"person_id": "p1", "age": 30}])
+    df_activities = pd.DataFrame(
+        [
+            {"person_id": "p1", "activity_index": 0, "purpose": "home", "geometry": _Point(1.444, 43.604)},
+            {"person_id": "p1", "activity_index": 1, "purpose": "work", "geometry": _Point(1.450, 43.610)},
+        ]
+    )
+    result = attach_home_destination_distance(df_persons, df_activities)
+    from synthesis.profiles.loader import _HOME_DESTINATION_CIRCUITY_FACTOR, _haversine_km_vector
+
+    raw = float(
+        _haversine_km_vector(
+            pd.Series([43.604]),
+            pd.Series([1.444]),
+            pd.Series([43.610]),
+            pd.Series([1.450]),
+        ).iloc[0]
+    )
+    assert result.loc[0, "home_destination_distance_km"] == pytest.approx(raw * _HOME_DESTINATION_CIRCUITY_FACTOR)
 
 
 def test_attach_home_destination_distance_work(tmp_path):

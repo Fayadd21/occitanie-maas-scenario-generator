@@ -14,6 +14,7 @@ FIELD_ALIASES: dict[str, list[str]] = {
 }
 
 _EARTH_RADIUS_KM = 6371.0
+_HOME_DESTINATION_CIRCUITY_FACTOR = 1.3
 
 
 def load_profiles_config(profiles_path: str | Path) -> dict[str, Any]:
@@ -208,15 +209,16 @@ def profiles_reference_field(profiles_path: str | Path, field: str) -> bool:
 def _coords_by_person(geometries: pd.Series) -> pd.DataFrame:
     if len(geometries) == 0:
         return pd.DataFrame(columns=["person_id", "lat", "lon"])
-    rows = []
-    for person_id, geometry in geometries.items():
-        if geometry is None or (isinstance(geometry, float) and pd.isna(geometry)):
-            continue
-        try:
-            rows.append({"person_id": str(person_id), "lat": float(geometry.y), "lon": float(geometry.x)})
-        except (AttributeError, TypeError, ValueError):
-            continue
-    return pd.DataFrame(rows)
+    frame = geometries.reset_index()
+    if "person_id" not in frame.columns:
+        frame = frame.rename(columns={frame.columns[0]: "person_id"})
+    frame = frame[frame["geometry"].notna()].copy()
+    if len(frame) == 0:
+        return pd.DataFrame(columns=["person_id", "lat", "lon"])
+    frame["person_id"] = frame["person_id"].astype(str)
+    frame["lat"] = frame["geometry"].map(lambda geom: float(geom.y))
+    frame["lon"] = frame["geometry"].map(lambda geom: float(geom.x))
+    return frame[["person_id", "lat", "lon"]]
 
 
 def _haversine_km_vector(
@@ -248,12 +250,15 @@ def attach_home_destination_distance(
         result["home_destination_distance_km"] = np.nan
         return result
 
-    activities = df_activities
+    person_ids = set(result["person_id"].astype(str).unique())
+    activities = df_activities[df_activities["person_id"].astype(str).isin(person_ids)].copy()
+    if len(activities) == 0:
+        result["home_destination_distance_km"] = np.nan
+        return result
+
     if activities["person_id"].dtype != object:
-        activities = activities.copy()
         activities["person_id"] = activities["person_id"].astype(str)
     else:
-        activities = activities.copy()
         activities["person_id"] = activities["person_id"].astype(str)
 
     home = _geometry_by_purpose(activities, "home")
@@ -283,15 +288,36 @@ def attach_home_destination_distance(
     valid = coords["home_lat"].notna() & coords["home_lon"].notna() & dest_lat.notna() & dest_lon.notna()
     distances = np.full(len(result), np.nan, dtype=float)
     if valid.any():
-        distances[valid.to_numpy()] = _haversine_km_vector(
-            coords.loc[valid, "home_lat"],
-            coords.loc[valid, "home_lon"],
-            dest_lat.loc[valid],
-            dest_lon.loc[valid],
-        ).to_numpy()
+        distances[valid.to_numpy()] = (
+            _haversine_km_vector(
+                coords.loc[valid, "home_lat"],
+                coords.loc[valid, "home_lon"],
+                dest_lat.loc[valid],
+                dest_lon.loc[valid],
+            ).to_numpy()
+            * _HOME_DESTINATION_CIRCUITY_FACTOR
+        )
 
     result["home_destination_distance_km"] = distances
     return result
+
+
+def persons_have_home_destination_distance(df_persons: pd.DataFrame) -> bool:
+    if "home_destination_distance_km" not in df_persons.columns:
+        return False
+    return bool(df_persons["home_destination_distance_km"].notna().any())
+
+
+def maybe_attach_home_destination_distance(
+    df_persons: pd.DataFrame,
+    df_activities: pd.DataFrame,
+    profiles_path: str | Path | None,
+) -> pd.DataFrame:
+    if not profiles_path or not profiles_reference_field(profiles_path, "home_destination_distance_km"):
+        return df_persons
+    if persons_have_home_destination_distance(df_persons):
+        return df_persons
+    return attach_home_destination_distance(df_persons, df_activities)
 
 
 def _resolve_latent_class_noise(data: dict[str, Any]) -> float:
