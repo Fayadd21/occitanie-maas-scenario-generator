@@ -1,3 +1,9 @@
+"""Job orchestration: baseline build, scenario runs, scenario.json export.
+
+Job state lives in backend/state/jobs/*.json. Synpp runs as a subprocess; this
+module polls exit codes and materializes outputs when runs finish.
+"""
+
 from __future__ import annotations
 
 import json
@@ -108,6 +114,37 @@ def _write_job_record(job_id: str, payload: dict[str, Any]) -> None:
             tmp_path.unlink(missing_ok=True)
 
 
+def _count_csv_rows(csv_path: Path) -> int:
+    if not csv_path.is_file():
+        return 0
+    return len(pd.read_csv(csv_path, sep=";"))
+
+
+def _attach_scenario_outcome(record: dict[str, Any]) -> dict[str, Any]:
+    if record.get("job_type") != "scenario":
+        return record
+
+    run_id = str(record["run_id"])
+    output_path = Path(record["output_path"])
+    generated_persons = _count_csv_rows(output_path / f"{run_id}_persons.csv")
+    generated_households = _count_csv_rows(output_path / f"{run_id}_households.csv")
+
+    requested_population = record.get("requested_target_population")
+    requested_households = record.get("requested_target_households")
+
+    population_shortfall = (
+        requested_population is not None and generated_persons < int(requested_population)
+    )
+    household_shortfall = (
+        requested_households is not None and generated_households < int(requested_households)
+    )
+
+    record["generated_person_count"] = generated_persons
+    record["generated_household_count"] = generated_households
+    record["target_shortfall"] = population_shortfall or household_shortfall
+    return record
+
+
 def refresh_status(job_id: str) -> dict[str, Any]:
     with _refresh_lock:
         record = _read_job_record(job_id)
@@ -135,6 +172,7 @@ def refresh_status(job_id: str) -> dict[str, Any]:
             elif not record.get("outputs_materialized", False):
                 materialize_run_outputs(record)
                 record["outputs_materialized"] = True
+                record = _attach_scenario_outcome(record)
                 changed = True
 
         if changed:
@@ -271,7 +309,7 @@ def create_baseline_rebuild_job(target_population: int | None = None) -> JobResp
         job_id=job_id,
         run_id=run_id,
         status="running",
-        message="Baseline rebuild started (synpp cache cleared; full pipeline recompute)",
+        message="Baseline build started (synpp cache cleared; full pipeline recompute)",
     )
 
 
@@ -280,7 +318,16 @@ def get_profiles_config() -> dict[str, Any]:
 
 
 def get_job(job_id: str) -> dict[str, Any]:
-    return refresh_status(job_id)
+    record = refresh_status(job_id)
+    if (
+        record.get("job_type") == "scenario"
+        and record.get("status") == "succeeded"
+        and record.get("outputs_materialized")
+        and record.get("generated_person_count") is None
+    ):
+        record = _attach_scenario_outcome(record)
+        _write_job_record(job_id, record)
+    return record
 
 
 def get_job_outputs(job_id: str) -> dict[str, Any]:
@@ -396,6 +443,7 @@ def _profiles_path_for_job(record: dict[str, Any]) -> Path:
 
 
 def get_job_scenario_export(job_id: str) -> dict[str, Any]:
+    """Build scenario.json from a succeeded scenario job."""
     record = _require_succeeded_job(job_id)
 
     run_id = str(record["run_id"])

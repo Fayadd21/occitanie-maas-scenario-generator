@@ -399,3 +399,49 @@ def test_normalize_gbfs_localized_text_prefers_french_label():
         )
         == "Français"
     )
+
+
+def test_attach_scenario_outcome_detects_target_shortfall(tmp_path):
+    from backend.app.services.job_service import _attach_scenario_outcome
+
+    run_id = "run_shortfall"
+    output_path = tmp_path / "jobs" / run_id
+    output_path.mkdir(parents=True)
+    prefix = f"{run_id}_"
+    pd.DataFrame({"person_id": [1, 2, 3]}).to_csv(output_path / f"{prefix}persons.csv", sep=";", index=False)
+    pd.DataFrame({"household_id": [10, 11]}).to_csv(output_path / f"{prefix}households.csv", sep=";", index=False)
+
+    record = {
+        "job_type": "scenario",
+        "run_id": run_id,
+        "output_path": str(output_path),
+        "requested_target_population": 500,
+        "requested_target_households": 200,
+    }
+    outcome = _attach_scenario_outcome(record)
+
+    assert outcome["generated_person_count"] == 3
+    assert outcome["generated_household_count"] == 2
+    assert outcome["target_shortfall"] is True
+
+
+def test_attach_scenario_outcome_no_shortfall_when_targets_met(tmp_path):
+    from backend.app.services.job_service import _attach_scenario_outcome
+
+    run_id = "run_ok"
+    output_path = tmp_path / "jobs" / run_id
+    output_path.mkdir(parents=True)
+    prefix = f"{run_id}_"
+    pd.DataFrame({"person_id": [1, 2]}).to_csv(output_path / f"{prefix}persons.csv", sep=";", index=False)
+    pd.DataFrame({"household_id": [10]}).to_csv(output_path / f"{prefix}households.csv", sep=";", index=False)
+
+    record = {
+        "job_type": "scenario",
+        "run_id": run_id,
+        "output_path": str(output_path),
+        "requested_target_population": 2,
+        "requested_target_households": 1,
+    }
+    outcome = _attach_scenario_outcome(record)
+
+    assert outcome["target_shortfall"] is False

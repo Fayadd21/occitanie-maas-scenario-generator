@@ -56,6 +56,60 @@ const baselineRunId = ref(DEFAULT_BASELINE_RUN_ID)
 const baselinePopulation = ref(BASELINE_TARGET_POPULATION)
 const availableBaselines = ref([])
 let pollTimer = null
+let outcomeAlertShownForJobId = null
+
+function formatScenarioOutcomeMessage(status) {
+  const generatedPersons = status.generated_person_count
+  const generatedHouseholds = status.generated_household_count
+  if (generatedPersons == null && generatedHouseholds == null) {
+    return null
+  }
+
+  const lines = ['Scenario generation finished.', '']
+  const requestedParts = []
+  if (status.requested_target_population != null) {
+    requestedParts.push(`${status.requested_target_population} persons`)
+  }
+  if (status.requested_target_households != null) {
+    requestedParts.push(`${status.requested_target_households} households`)
+  }
+  if (requestedParts.length > 0) {
+    lines.push(`Requested: ${requestedParts.join(', ')}`)
+  }
+
+  const generatedParts = []
+  if (generatedPersons != null) {
+    generatedParts.push(`${generatedPersons} persons`)
+  }
+  if (generatedHouseholds != null) {
+    generatedParts.push(`${generatedHouseholds} households`)
+  }
+  if (generatedParts.length > 0) {
+    lines.push(`Generated: ${generatedParts.join(', ')}`)
+  }
+
+  if (status.target_shortfall) {
+    lines.push('')
+    lines.push(
+      'The selection could not supply enough households to reach your targets. ' +
+        'All feasible households in the filtered area were kept.',
+    )
+  }
+
+  return lines.join('\n')
+}
+
+function maybeShowScenarioOutcomeAlert(jobId, status) {
+  if (status.job_type === 'baseline') {
+    return
+  }
+  const message = formatScenarioOutcomeMessage(status)
+  if (!message || outcomeAlertShownForJobId === jobId) {
+    return
+  }
+  window.alert(message)
+  outcomeAlertShownForJobId = jobId
+}
 
 const bikeAvailabilityOverrides = ref({})
 const bikeMapSelection = ref(null)
@@ -377,6 +431,7 @@ async function refreshJob(jobId) {
         await refreshBaselineReady()
         await loadBaselines()
       } else {
+        maybeShowScenarioOutcomeAlert(jobId, status)
         const outputs = await getJobOutputs(jobId)
         jobState.value.outputs = outputs.files || []
         refreshLayersForRun(jobId, status.run_id || jobState.value.runId, outputs.files || [])
@@ -492,6 +547,7 @@ async function startGeneration() {
 
   try {
     stopPolling()
+    outcomeAlertShownForJobId = null
     resetLayersToDefaultOutputs()
     jobState.value = {
       status: 'starting',
