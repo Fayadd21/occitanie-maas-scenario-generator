@@ -20,7 +20,7 @@
 
 Example fields:
 
-- `target_population` - default cap for baseline rebuild (`backend/config/defaults.yml`)
+- `target_population` - default cap for baseline build (`backend/config/defaults.yml`)
 - `baseline_run_id` - e.g. `baseline_occitanie_59510`
 - `baseline_ready` - `true` when `output/baselines/<baseline_run_id>/` contains the required population tables
 

@@ -60,7 +60,7 @@ export async function rebuildBaseline(targetPopulation) {
     body: JSON.stringify(body),
   })
   if (!response.ok) {
-    throw new Error(`Baseline rebuild failed: ${response.status}`)
+    throw new Error(`Baseline build failed: ${response.status}`)
   }
   return response.json()
 }

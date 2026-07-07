@@ -1,5 +1,7 @@
 version: 1
 
+# Copy to profiles.yml and edit.
+
 # Gaussian noise applied to exported preference weights (0 = deterministic).
 # It changes each preference weight explicitly marked with noise_target: true
 latent_class_noise_std: 0.1

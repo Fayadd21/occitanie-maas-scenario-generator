@@ -1,3 +1,5 @@
+"""Shared paths for the Occitanie backend (jobs, baselines, config templates)."""
+
 from __future__ import annotations
 
 from pathlib import Path

@@ -1,3 +1,9 @@
+"""Baseline storage, readiness checks, and rebuild finalization.
+
+A baseline is ready when output/baselines/<id>/ contains the required CSV/GPKG
+suffixes listed in BASELINE_REQUIRED_SUFFIXES.
+"""
+
 from __future__ import annotations
 
 import shutil

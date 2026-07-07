@@ -1,3 +1,10 @@
+"""Runtime synpp config assembly for API-triggered jobs.
+
+build_runtime_config writes a one-off YAML under backend/state/configs/ with
+baseline_run_id, polygon GeoJSON, profile path, and population targets filled in
+from the UI payload.
+"""
+
 from __future__ import annotations
 
 import datetime as dt

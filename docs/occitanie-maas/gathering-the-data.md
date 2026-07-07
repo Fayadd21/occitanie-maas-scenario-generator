@@ -246,7 +246,7 @@ Repeat for each city, changing URLs and output file names.
 
 ### B) Bikesharing - status history (`data/bikesharing_occitanie/`)
 
-Baseline rebuild reads **historical** availability from CSV, not live APIs.
+Baseline build reads **historical** availability from CSV, not live APIs.
 
 1. Edit `data/bikesharing_occitanie/station_status_feeds.json` (city slug → GBFS
    `station_status.json` URL; same hosts as above with `station_status` instead of

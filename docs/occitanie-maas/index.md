@@ -11,8 +11,7 @@ Population synthesis and data download:
 - [Data layout](data-layout.md) - expected file names
 - [Quickstart](quickstart.md) - running the pipeline
 
-The usual job runs only `synthesis.output` against a stored baseline. This project
-does not use MATSim
+Scenario jobs run `synthesis.output` against a stored baseline.
 
 ```{toctree}
 :titlesonly:

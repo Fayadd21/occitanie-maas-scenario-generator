@@ -28,5 +28,5 @@ scenario job (UI or POST /jobs)
 - `backend/config/constraints.yml` - person mobility constraints (baseline only)
 - `config_occitanie.yml` - synpp template for Occitanie
 
-Latent classes are written in `synthesis/output`, not in `synthesis.population.enriched`.
+Latent classes are assigned in `synthesis/output` during scenario jobs.
 `latent_classes.enabled` stays `false` in the runtime config.

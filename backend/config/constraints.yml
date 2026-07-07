@@ -1,5 +1,7 @@
 version: 1
 
+# Mobility constraints for routing export, applied during baseline build.
+
 constraint_types:
   wheelchair_access_required:
     metric: wheelchair_accessible

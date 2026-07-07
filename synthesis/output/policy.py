@@ -1,3 +1,10 @@
+"""Polygon filter and household-level downsampling for scenario jobs.
+
+Household visit order depends on outskirts_bias: edge households first when bias
+is high, random shuffle in the interior. allowed_latent_classes keeps matching
+profiles only.
+"""
+
 from __future__ import annotations
 
 import geopandas as gpd

@@ -1,3 +1,8 @@
+"""Person-level mobility constraints applied during baseline build.
+
+Rules in constraints.yml produce a JSON list stored in persons.constraints.
+"""
+
 from __future__ import annotations
 
 import hashlib

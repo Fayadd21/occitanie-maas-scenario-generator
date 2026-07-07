@@ -201,7 +201,7 @@ Mode ids in this project use names such as `car`, `bike`, `bikesharing` (not
 
 Probabilistic assignments use `random_seed` from the synpp config (default `1234` in
 `config_occitanie.yml`). The draw is a deterministic hash of
-`random_seed`, assignment `id`, and `person_id`, so the same baseline rebuild always
+`random_seed`, assignment `id`, and `person_id`, so the same baseline build always
 assigns the same people.
 
 ## Adding a new constraint

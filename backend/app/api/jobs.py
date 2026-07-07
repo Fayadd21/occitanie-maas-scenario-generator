@@ -1,3 +1,5 @@
+"""REST routes for baseline build and scenario jobs."""
+
 from __future__ import annotations
 
 from typing import Any

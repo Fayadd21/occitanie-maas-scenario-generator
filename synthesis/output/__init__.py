@@ -1,3 +1,13 @@
+"""Scenario output stage for the Occitanie MaaS workflow.
+
+Loads a stored baseline from output/baselines/, applies polygon and population
+policy, assigns behavioural profiles (latent_class), and writes job outputs.
+Constraints on persons are set during baseline build.
+
+Profile assignment and downsampling interact when allowed_latent_classes is a
+strict subset; see _apply_latent_class_assignment.
+"""
+
 from __future__ import annotations
 
 import geopandas as gpd
@@ -267,6 +277,7 @@ def execute(context):
         initial_activity_count = len(df_activities)
         df_locations = _empty_locations_frame()
 
+        # Trim head count before loading activities.gpkg when there is no polygon yet.
         if (
             assign_latent_classes_enabled
             and not population_filter_geojson
@@ -402,6 +413,7 @@ def execute(context):
             context.config("pnr_data_paths"),
         )
 
+    # Full baseline, unchanged counts: copy spatial layers from baseline.
     reuse_baseline_spatial = spatial_subset_unchanged(
         baseline_mode=baseline_run_path is not None,
         population_filter_geojson=population_filter_geojson,

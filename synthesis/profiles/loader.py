@@ -1,3 +1,10 @@
+"""Behavioural profiles for scenario export.
+
+Each person gets a latent_class by scoring YAML rules. Preferences for
+scenario.json come from the winning profile, with optional Gaussian noise on
+weights marked noise_target in profiles.yml.
+"""
+
 from __future__ import annotations
 
 import math

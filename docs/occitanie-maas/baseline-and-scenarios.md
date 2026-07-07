@@ -1,6 +1,6 @@
 # Baseline and scenarios
 
-## Baseline rebuild
+## Baseline build
 
 | | Baseline | Scenario job |
 |--|----------|----------------|

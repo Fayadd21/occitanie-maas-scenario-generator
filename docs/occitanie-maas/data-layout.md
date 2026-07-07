@@ -170,7 +170,7 @@ and are not overridden in `config_occitanie.yml`.
 
 ## Refreshing bikesharing availability
 
-Baseline rebuild **does not** call live GBFS APIs. It reads the files above.
+Baseline build **does not** call live GBFS APIs. It reads the files above.
 To refresh status history, run the collector (it loads `station_status_feeds.json` by default):
 
 ```bash

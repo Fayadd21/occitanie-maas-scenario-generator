@@ -26,7 +26,7 @@ as the reference template. Scenario jobs fail if `profiles.yml` is missing.
 ## Assignment
 
 Enabled when `assign_latent_classes: true` in the job config (set by the backend for
-`POST /jobs`, not for baseline rebuild).
+`POST /jobs` scenario jobs).
 
 In `synthesis/profiles/loader.py`, each person is scored on every profile. Household
 fields are merged before scoring, and the class with the highest score is kept.

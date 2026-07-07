@@ -26,6 +26,8 @@ curl -X POST http://localhost:8000/baseline/rebuild
 Poll `GET /jobs/{job_id}` until `status` is `succeeded`. This can take a long time (synpp cache
 is cleared and upstream stages are recomputed).
 
+For baseline vs scenario job details, see [baseline and scenarios](baseline-and-scenarios.md).
+
 Check readiness:
 
 ```bash
@@ -42,7 +44,7 @@ exists with the required tables). The API returns **409** if you call `POST /job
 1. Draw or import a polygon.
 2. Set target population and households if needed.
 3. Select allowed latent classes.
-4. Click **Generate population** (enabled only after a successful baseline rebuild).
+4. Click **Generate population** (enabled only after a successful baseline build).
 
 Files appear under `output/jobs/<run_id>/` (`<run_id>_persons.csv`, activities, households, resources).
 
