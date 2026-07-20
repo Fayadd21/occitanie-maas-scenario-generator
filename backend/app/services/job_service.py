@@ -1,4 +1,4 @@
-"""Job orchestration: baseline build, scenario runs, scenario.json export.
+"""Job orchestration: baseline build, scenario runs, scenario.zip export.
 
 Job state lives in backend/state/jobs/*.json. Synpp runs as a subprocess; this
 module polls exit codes and materializes outputs when runs finish.
@@ -13,7 +13,9 @@ import time
 import uuid
 import hashlib
 import ast
+import io
 import re
+import zipfile
 from pathlib import Path
 from typing import Any
 
@@ -37,8 +39,9 @@ from backend.app.services.config_service import (
     utc_now,
 )
 from backend.app.services.constants import (
+    CONFIG_TEMPLATE,
+    DATA_DIR,
     baseline_artifact_path,
-    DEFAULT_BASELINE_RUN_ID,
     JOBS_DIR,
     LOGS_DIR,
     OUTPUT_DIR,
@@ -442,8 +445,89 @@ def _profiles_path_for_job(record: dict[str, Any]) -> Path:
     return PROFILES_PATH
 
 
-def get_job_scenario_export(job_id: str) -> dict[str, Any]:
-    """Build scenario.json from a succeeded scenario job."""
+def _load_yaml_config(path: Path) -> dict[str, Any]:
+    if not path.is_file():
+        return {}
+    import yaml
+
+    with path.open("r", encoding="utf-8") as handle:
+        payload = yaml.safe_load(handle) or {}
+    if not isinstance(payload, dict):
+        return {}
+    cfg = payload.get("config", payload)
+    return cfg if isinstance(cfg, dict) else {}
+
+
+def _resolve_timetable_settings(record: dict[str, Any] | None = None) -> tuple[Path | None, str]:
+    template_cfg = _load_yaml_config(CONFIG_TEMPLATE)
+    runtime_cfg: dict[str, Any] = {}
+    if record:
+        runtime_config = record.get("runtime_config")
+        if runtime_config:
+            runtime_cfg = _load_yaml_config(Path(str(runtime_config)))
+
+    merged = {**template_cfg, **runtime_cfg}
+    raw_path = merged.get("timetables_path")
+    if raw_path is None or str(raw_path).strip() in {"", "null", "None"}:
+        raw_path = template_cfg.get("timetables_path")
+
+    weekday = str(
+        merged.get("timetables_weekday")
+        or template_cfg.get("timetables_weekday")
+        or "monday"
+    ).strip().lower() or "monday"
+
+    if raw_path is None or str(raw_path).strip() in {"", "null", "None"}:
+        return None, weekday
+
+    path = Path(str(raw_path).strip())
+    if not path.is_absolute():
+        data_path = merged.get("data_path") or template_cfg.get("data_path")
+        base = Path(str(data_path)) if data_path else DATA_DIR
+        path = base / path
+    return path, weekday
+
+
+def _load_operator_timetables(timetables_dir: Path | None, weekday: str, operator_id: str) -> list[Any]:
+    path = _operator_timetable_path(timetables_dir, weekday, operator_id)
+    if path is None:
+        return []
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return []
+    return payload if isinstance(payload, list) else []
+
+
+def _operator_timetable_path(
+    timetables_dir: Path | None,
+    weekday: str,
+    operator_id: str,
+) -> Path | None:
+    if timetables_dir is None:
+        return None
+    path = timetables_dir / weekday / f"{operator_id}.json"
+    return path if path.is_file() else None
+
+
+def _operator_json_bytes(payload: dict[str, Any], timetable_path: Path | None = None) -> bytes:
+    core = {key: value for key, value in payload.items() if key != "timetables"}
+    core_json = json.dumps(core, ensure_ascii=False, separators=(",", ":"))
+    if not core_json.endswith("}"):
+        raise ValueError("unexpected operator JSON encoding")
+    prefix = (core_json[:-1] + ',"timetables":').encode("utf-8")
+    if timetable_path is not None:
+        timetable_bytes = timetable_path.read_bytes().strip() or b"[]"
+    else:
+        timetable_bytes = json.dumps(
+            payload.get("timetables", []),
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    return prefix + timetable_bytes + b"}"
+
+
+def _build_scenario_parts(job_id: str) -> tuple[dict[str, Any], dict[str, Any], str, Path | None, str]:
     record = _require_succeeded_job(job_id)
 
     run_id = str(record["run_id"])
@@ -472,23 +556,32 @@ def get_job_scenario_export(job_id: str) -> dict[str, Any]:
     person_to_constraints: dict[str, list[dict[str, Any]]] = {}
     all_person_ids: set[str] = set()
     if "person_id" in df_persons.columns:
-        all_person_ids = set(df_persons["person_id"].astype(str).tolist())
-        latent_df = df_persons[["person_id", "latent_class"]].dropna()
-        person_to_latent_class = {
-            str(row["person_id"]): str(row["latent_class"]) for _, row in latent_df.iterrows()
-        }
+        person_ids = df_persons["person_id"].astype(str)
+        all_person_ids = set(person_ids.tolist())
+        if "latent_class" in df_persons.columns:
+            latent_mask = df_persons["latent_class"].notna()
+            person_to_latent_class = {
+                str(pid): str(lc)
+                for pid, lc in zip(
+                    df_persons.loc[latent_mask, "person_id"].astype(str),
+                    df_persons.loc[latent_mask, "latent_class"].astype(str),
+                    strict=False,
+                )
+            }
         if "constraints" in df_persons.columns:
             from synthesis.constraints.loader import parse_person_constraints
 
-            for _, row in df_persons.iterrows():
-                person_id = str(row["person_id"])
-                person_to_constraints[person_id] = parse_person_constraints(row.get("constraints"))
+            person_to_constraints = {
+                str(pid): parse_person_constraints(raw)
+                for pid, raw in zip(person_ids, df_persons["constraints"].tolist(), strict=False)
+            }
 
     persons_export_df = df_persons.copy()
     if "constraints" in persons_export_df.columns:
-        from synthesis.constraints.loader import parse_person_constraints
-
-        persons_export_df["constraints"] = persons_export_df["constraints"].map(parse_person_constraints)
+        persons_export_df["constraints"] = [
+            person_to_constraints.get(str(pid), [])
+            for pid in persons_export_df["person_id"].astype(str)
+        ]
     persons_export = persons_export_df.where(pd.notna(persons_export_df), None).to_dict(orient="records")
     requests = _build_requests(
         df_activities,
@@ -498,17 +591,58 @@ def get_job_scenario_export(job_id: str) -> dict[str, Any]:
         profiles_path=profiles_path,
     )
     bike_station_availability = bike_station_availability_from_job_record(record)
-    resources = _build_resources(output_path, run_id, bike_station_availability=bike_station_availability)
+    timetables_dir, timetables_weekday = _resolve_timetable_settings(record)
+    resources = _build_resources(
+        output_path,
+        run_id,
+        bike_station_availability=bike_station_availability,
+        timetables_dir=timetables_dir,
+        timetables_weekday=timetables_weekday,
+        include_timetables=False,
+    )
     request_person_ids = {str(request.get("person_id")) for request in requests if request.get("person_id") is not None}
     persons_without_requests = sorted(all_person_ids - request_person_ids) if all_person_ids else []
 
-    return {
+    demand = {
         "persons": persons_export,
         "requests": requests,
-        "resources": resources,
         "persons_without_requests": persons_without_requests,
         "profiles_path": str(profiles_path),
     }
+    return demand, resources, run_id, timetables_dir, timetables_weekday
+
+
+def build_scenario_zip_bytes(job_id: str) -> tuple[bytes, str]:
+    demand, resources, run_id, timetables_dir, timetables_weekday = _build_scenario_parts(job_id)
+    return pack_scenario_zip_bytes(
+        demand,
+        resources,
+        run_id=run_id,
+        timetables_dir=timetables_dir,
+        timetables_weekday=timetables_weekday,
+    )
+
+
+def pack_scenario_zip_bytes(
+    demand: dict[str, Any],
+    resources: dict[str, Any],
+    *,
+    run_id: str = "scenario",
+    timetables_dir: Path | None = None,
+    timetables_weekday: str = "monday",
+) -> tuple[bytes, str]:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, mode="w", compression=zipfile.ZIP_DEFLATED, compresslevel=1) as zf:
+        zf.writestr(
+            "scenario.json",
+            json.dumps(demand, ensure_ascii=False, separators=(",", ":")),
+        )
+        for operator_id, payload in sorted(resources.items()):
+            timetable_path = _operator_timetable_path(timetables_dir, timetables_weekday, operator_id)
+            operator_bytes = _operator_json_bytes(payload, timetable_path)
+            compress = zipfile.ZIP_STORED if timetable_path is not None else zipfile.ZIP_DEFLATED
+            zf.writestr(f"operators/{operator_id}.json", operator_bytes, compress_type=compress)
+    return buffer.getvalue(), f"{run_id}_scenario.zip"
 
 
 def _hash_point(lat: float, lon: float, salt: str) -> str:
@@ -520,20 +654,6 @@ def _to_min_str(value: Any) -> str | None:
     if pd.isna(value):
         return None
     return str(int(round(float(value) / 60.0)))
-
-
-def _preferences_for_latent_class(
-    index: int,
-    latent_class: str | None,
-    profiles_path: Path,
-) -> list[dict[str, Any]]:
-    from synthesis.profiles.loader import preferences_for_profile
-
-    return preferences_for_profile(
-        latent_class,
-        profiles_path,
-        request_index=index,
-    )
 
 
 def _build_requests(
@@ -558,34 +678,41 @@ def _build_requests(
     if gdf_activities.crs is not None and str(gdf_activities.crs).lower() != "epsg:4326":
         gdf_activities = gdf_activities.to_crs("EPSG:4326")
 
+    from synthesis.profiles.loader import load_profiles_config, preferences_for_profile
+
+    profiles_data = load_profiles_config(profiles_path)
+
     merged = pd.merge(
         df_activities,
         gdf_activities[["person_id", "activity_index", "geometry"]],
         on=["person_id", "activity_index"],
         how="left",
     )
-    grouped = merged.sort_values(["person_id", "activity_index"]).groupby("person_id", observed=False)
+    merged = merged.sort_values(["person_id", "activity_index"], kind="mergesort")
+    grouped = merged.groupby("person_id", observed=False, sort=False)
     request_counter = 0
-    for _, group in grouped:
+    for person_id_raw, group in grouped:
         if len(group) < 2:
             continue
         if any(c not in group.columns for c in ["geometry", "start_time", "end_time", "activity_index"]):
             continue
 
-        person_id = str(group.iloc[0]["person_id"])
+        person_id = str(person_id_raw)
         latent_class = person_to_latent_class.get(person_id)
         constraints = (person_to_constraints or {}).get(person_id, [])
-        ordered = group.sort_values("activity_index").reset_index(drop=True)
+        ordered = group.reset_index(drop=True)
+        geometries = ordered["geometry"].tolist()
+        start_times = ordered["start_time"].tolist() if "start_time" in ordered.columns else [None] * len(ordered)
+        end_times = ordered["end_time"].tolist() if "end_time" in ordered.columns else [None] * len(ordered)
+        activity_indices = ordered["activity_index"].tolist()
 
         for leg_idx in range(len(ordered) - 1):
-            origin = ordered.iloc[leg_idx]
-            destination = ordered.iloc[leg_idx + 1]
+            start_geom = geometries[leg_idx]
+            end_geom = geometries[leg_idx + 1]
 
-            if pd.isna(origin["geometry"]) or pd.isna(destination["geometry"]):
+            if start_geom is None or end_geom is None or pd.isna(start_geom) or pd.isna(end_geom):
                 continue
 
-            start_geom = origin["geometry"]
-            end_geom = destination["geometry"]
             start_lat = float(start_geom.y)
             start_lon = float(start_geom.x)
             end_lat = float(end_geom.y)
@@ -595,18 +722,22 @@ def _build_requests(
             preference_index = request_counter
             request_counter += 1
 
-            dep_lo = _to_min_str(origin.get("start_time", None))
-            dep_hi = _to_min_str(origin.get("end_time", None))
-            arr_lo = _to_min_str(destination.get("start_time", None))
-            arr_hi = _to_min_str(destination.get("end_time", None))
+            dep_lo = _to_min_str(start_times[leg_idx])
+            dep_hi = _to_min_str(end_times[leg_idx])
+            arr_lo = _to_min_str(start_times[leg_idx + 1])
+            arr_hi = _to_min_str(end_times[leg_idx + 1])
+            origin_activity_index = activity_indices[leg_idx]
+            destination_activity_index = activity_indices[leg_idx + 1]
 
             requests.append(
                 {
                     "id": request_id,
                     "person_id": person_id,
-                    "origin_activity_index": int(origin["activity_index"]) if not pd.isna(origin["activity_index"]) else None,
-                    "destination_activity_index": int(destination["activity_index"])
-                    if not pd.isna(destination["activity_index"])
+                    "origin_activity_index": int(origin_activity_index)
+                    if not pd.isna(origin_activity_index)
+                    else None,
+                    "destination_activity_index": int(destination_activity_index)
+                    if not pd.isna(destination_activity_index)
                     else None,
                     "start": {
                         "id": _hash_point(start_lat, start_lon, f"{request_id}:start"),
@@ -625,10 +756,11 @@ def _build_requests(
                     "time_window_dep": [dep_lo or "0", dep_hi or dep_lo or "0"],
                     "time_window_arr": [arr_lo or dep_hi or dep_lo or "0", arr_hi or arr_lo or dep_hi or dep_lo or "0"],
                     "personal_benefits": [],
-                    "preferences": _preferences_for_latent_class(
-                        preference_index,
+                    "preferences": preferences_for_profile(
                         latent_class,
                         profiles_path,
+                        request_index=preference_index,
+                        profiles_data=profiles_data,
                     ),
                     "constraints": constraints,
                     "latent_class": latent_class,
@@ -677,7 +809,6 @@ def _append_scenario_point_operator(
     *,
     operator_id: str,
     mode_id: str,
-    point_kind: str,
     operator_resources: list[dict[str, Any]],
     operator_points: list[dict[str, Any]],
 ) -> None:
@@ -748,6 +879,9 @@ def _build_resources(
     output_path: Path,
     run_id: str,
     bike_station_availability: dict[str, int] | None = None,
+    timetables_dir: Path | None = None,
+    timetables_weekday: str = "monday",
+    include_timetables: bool = True,
 ) -> dict[str, Any]:
     routes_path = _resolve_scenario_resource_path(output_path, run_id, "gtfs_routes.csv")
     stops_path = _resolve_scenario_resource_path(output_path, run_id, "gtfs_stops.csv")
@@ -846,16 +980,22 @@ def _build_resources(
                 df_stops = df_stops.copy()
                 operator_col = "operator"
                 df_stops[operator_col] = "gtfs"
-            for _, row in df_stops[[lat_col, lon_col, operator_col]].dropna(subset=[lat_col, lon_col]).drop_duplicates().iterrows():
-                lat = float(row[lat_col])
-                lon = float(row[lon_col])
-                for operator_name in parse_operator_values(row.get(operator_col), "gtfs"):
+            stops = df_stops[[lat_col, lon_col, operator_col]].dropna(subset=[lat_col, lon_col]).drop_duplicates()
+            for lat, lon, operator_raw in zip(
+                stops[lat_col].tolist(),
+                stops[lon_col].tolist(),
+                stops[operator_col].tolist(),
+                strict=False,
+            ):
+                lat_f = float(lat)
+                lon_f = float(lon)
+                for operator_name in parse_operator_values(operator_raw, "gtfs"):
                     operator_id = normalize_operator_id(operator_name, "gtfs")
                     pt_points_by_operator.setdefault(operator_id, []).append(
                         {
-                            "id": _hash_point(lat, lon, f"stop:{operator_id}"),
-                            "lat": lat,
-                            "lon": lon,
+                            "id": _hash_point(lat_f, lon_f, f"stop:{operator_id}"),
+                            "lat": lat_f,
+                            "lon": lon_f,
                             "kind": "stop",
                         }
                     )
@@ -947,7 +1087,11 @@ def _build_resources(
             "resources": operator_resources,
             "points": pt_points_by_operator.get(operator_id, []),
             "positions": [],
-            "timetables": [],
+            "timetables": (
+                _load_operator_timetables(timetables_dir, timetables_weekday, operator_id)
+                if include_timetables
+                else []
+            ),
         }
 
     for operator_id, operator_resources in bike_resources_by_operator.items():
@@ -989,7 +1133,6 @@ def _build_resources(
             resources,
             operator_id=operator_id,
             mode_id=mode_id,
-            point_kind=point_kind,
             operator_resources=layer_resources,
             operator_points=layer_points,
         )

@@ -553,11 +553,11 @@ function onBikeEditorInput(event) {
       </button>
       <button
         class="clear-btn"
-        :disabled="jobState.status !== 'succeeded' || !jobState.jobId"
+        :disabled="jobState.status !== 'succeeded' || !jobState.jobId || jobState.exporting"
         type="button"
         @click="emit('exportScenario')"
       >
-        Export scenario JSON
+        {{ jobState.exporting ? 'Exporting scenario…' : 'Export scenario zip' }}
       </button>
     </div>
 

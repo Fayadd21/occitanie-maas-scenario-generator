@@ -25,6 +25,7 @@ quickstart.md
 profiles-and-latent-classes.md
 constraints.md
 baseline-and-scenarios.md
+timetables.md
 api-and-outputs.md
 unit-tests.md
 ```

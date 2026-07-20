@@ -2,12 +2,14 @@ from pathlib import Path
 
 import pytest
 import yaml
+import pandas as pd
 from fastapi import HTTPException
 
 from backend.app.services.baseline_service import (
     BASELINE_REQUIRED_SUFFIXES,
     baseline_run_id_for_target,
     clear_synpp_cache,
+    get_active_baseline_directory,
     is_baseline_ready,
     require_baseline_for_scenario,
 )
@@ -48,6 +50,20 @@ config:
 def test_baseline_run_id_for_target():
     assert baseline_run_id_for_target(100) == "baseline_occitanie_100"
     assert baseline_run_id_for_target(59_510) == "baseline_occitanie_59510"
+
+
+def test_get_active_baseline_directory_from_config(tmp_path, monkeypatch):
+    from backend.app.services import baseline_service
+
+    baseline_dir = tmp_path / "baseline_occitanie_123"
+    baseline_dir.mkdir()
+    config_path = tmp_path / "config_occitanie.yml"
+    config_path.write_text(
+        yaml.safe_dump({"config": {"baseline_run_path": str(baseline_dir)}}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(baseline_service, "CONFIG_TEMPLATE", config_path)
+    assert get_active_baseline_directory() == baseline_dir.resolve()
 
 
 def test_build_baseline_runtime_config_uses_requested_baseline_run_id(tmp_path, monkeypatch):

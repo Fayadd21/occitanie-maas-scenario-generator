@@ -54,6 +54,37 @@ def get_active_baseline_run_id() -> str:
     return DEFAULT_BASELINE_RUN_ID
 
 
+def get_active_baseline_directory() -> Path:
+    if CONFIG_TEMPLATE.exists():
+        with CONFIG_TEMPLATE.open("r", encoding="utf-8") as handle:
+            config = yaml.safe_load(handle) or {}
+        cfg = config.get("config") or {}
+
+        raw_path = cfg.get("baseline_run_path")
+        if raw_path is not None and str(raw_path).strip() not in {"", "null", "None"}:
+            path = Path(str(raw_path).strip())
+            if not path.is_absolute():
+                path = (REPO_ROOT / path).resolve()
+            else:
+                path = path.resolve()
+            if path.is_dir():
+                return path
+
+        run_id = cfg.get("baseline_run_id")
+        if run_id and str(run_id).strip():
+            path = baseline_directory(str(run_id).strip())
+            if path.is_dir():
+                return path.resolve()
+
+    return baseline_directory(get_active_baseline_run_id()).resolve()
+
+
+def resolve_baseline_directory(baseline_dir: Path | None = None) -> Path:
+    if baseline_dir is not None:
+        return Path(baseline_dir).resolve()
+    return get_active_baseline_directory()
+
+
 def get_synpp_working_directory() -> Path:
     if not CONFIG_TEMPLATE.exists():
         raise RuntimeError(f"Missing template config: {CONFIG_TEMPLATE}")

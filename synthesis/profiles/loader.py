@@ -23,15 +23,27 @@ FIELD_ALIASES: dict[str, list[str]] = {
 _EARTH_RADIUS_KM = 6371.0
 _HOME_DESTINATION_CIRCUITY_FACTOR = 1.3
 
+_PROFILES_CONFIG_CACHE: dict[tuple[str, int], dict[str, Any]] = {}
+
 
 def load_profiles_config(profiles_path: str | Path) -> dict[str, Any]:
     path = Path(profiles_path)
     if not path.exists():
         raise FileNotFoundError(f"Profiles config not found: {path}")
+    resolved = str(path.resolve())
+    mtime_ns = path.stat().st_mtime_ns
+    cache_key = (resolved, mtime_ns)
+    cached = _PROFILES_CONFIG_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
     with path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle) or {}
     if not isinstance(data.get("profiles"), list) or not data["profiles"]:
         raise ValueError(f"Profiles config has no profiles: {path}")
+    stale = [key for key in _PROFILES_CONFIG_CACHE if key[0] == resolved]
+    for key in stale:
+        del _PROFILES_CONFIG_CACHE[key]
+    _PROFILES_CONFIG_CACHE[cache_key] = data
     return data
 
 
@@ -421,14 +433,19 @@ def preferences_for_profile(
     profiles_path: str | Path,
     *,
     request_index: int,
+    profiles_data: dict[str, Any] | None = None,
 ) -> list[dict[str, Any]]:
-    data = load_profiles_config(profiles_path)
+    data = profiles_data if profiles_data is not None else load_profiles_config(profiles_path)
     normalized = (profile_id or "").strip().lower()
-    selected = None
-    for profile in data["profiles"]:
-        if str(profile["id"]).strip().lower() == normalized:
-            selected = profile
-            break
+    by_id = data.get("_profiles_by_id")
+    if not isinstance(by_id, dict):
+        by_id = {
+            str(profile["id"]).strip().lower(): profile
+            for profile in data["profiles"]
+            if profile.get("id") is not None
+        }
+        data["_profiles_by_id"] = by_id
+    selected = by_id.get(normalized)
 
     preference_rows = list(
         (selected or {}).get("preferences")

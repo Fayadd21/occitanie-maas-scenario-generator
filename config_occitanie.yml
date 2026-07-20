@@ -1,16 +1,7 @@
-## Synthetic population pipeline for Occitanie
-## based on the synpp package
-
-# This is the path to a directory where the pipeline can store temporary data (cache folder)
-working_directory: # expected something like: /mnt/c/eqasim-france/cache
-
-# This section defines which parts of the pipeline should be run
+working_directory: /mnt/c/Users/dfayad/Desktop/articles//eqasim-france/cache
 run:
-  - synthesis.output
-
-# Here the configuraiton of the pipeline starts
+- synthesis.output
 config:
-  # Some general configuration
   processes: 4
   hts: entd
   latent_classes.enabled: false
@@ -60,3 +51,6 @@ config:
   pnr_data_paths: p+r
 
   income_assignation_method: bhepop2
+
+  timetables_path: # expected something like: /mnt/c/eqasim-france/data/gtfs_occitanie/timetables/20260717_163230
+  timetables_weekday: # expected something like: monday/tuesday/wednesday/thursday/friday/saturday/sunday

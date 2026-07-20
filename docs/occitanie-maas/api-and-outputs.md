@@ -14,7 +14,7 @@
 | GET | `/jobs/{id}/log` | |
 | GET | `/jobs/{id}/population.geojson` | |
 | GET | `/jobs/{id}/activities.geojson` | |
-| GET | `/jobs/{id}/scenario.json` | |
+| GET | `/jobs/{id}/scenario.zip` | Demand `scenario.json` + `operators/{OperatorId}.json` (Public transport timetables from `timetables_path`; see [GTFS timetables](timetables.md)) |
 
 ### `GET /config/defaults`
 

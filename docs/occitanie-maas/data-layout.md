@@ -134,6 +134,11 @@ layers (`gbfs_path`, `bikesharing_path`, and list paths in `config_occitanie.yml
 - `data/gtfs_occitanie/gtfs-production.zip`
 - `data/gtfs_occitanie/gtfs-sankeo.zip`
 
+**Timetables** (built with `data/gtfs/build_timetables.py`; see [GTFS timetables](timetables.md)):
+
+- `data/gtfs_occitanie/timetables/<timestamp>/monday/TisseoOperator.json` (and other weekdays / operators)
+- `data/gtfs_occitanie/timetables/<timestamp>/lines_by_weekday.csv`
+
 ### GeoPackage outputs (UI map layers)
 
 With `output_formats` including `gpkg`, `synthesis.output` writes geometry for the
@@ -156,6 +161,8 @@ or CSVs from `export_static_resources`.
 | `ban_path` | `ban_occitanie/` |
 | `bdtopo_path` | `bdtopo_occitanie/` |
 | `gtfs_path` | `gtfs_occitanie/` |
+| `timetables_path` | `gtfs_occitanie/timetables/<timestamp>/` |
+| `timetables_weekday` | e.g. `monday` |
 | `gbfs_path` | `gbfs/` |
 | `bikesharing_path` | `bikesharing_occitanie/` |
 | `carsharing_path` | `carsharing_occitanie/station_information_carsharing_citiz_occitanie.json` |

@@ -4,12 +4,14 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
+from fastapi.responses import Response
 
 from backend.app.models.job_models import BaselineRebuildRequest, BaselineSelectRequest, JobCreateRequest, JobResponse
 from backend.app.services.baseline_service import list_available_baselines, set_active_baseline
 from backend.app.services.config_service import load_defaults
 from backend.app.services.job_service import (
+    build_scenario_zip_bytes,
     create_baseline_rebuild_job,
     create_job,
     get_job,
@@ -18,7 +20,6 @@ from backend.app.services.job_service import (
     get_job_outputs,
     get_job_population_geojson,
     get_profiles_config,
-    get_job_scenario_export,
 )
 
 router = APIRouter()
@@ -90,6 +91,11 @@ def get_job_activities_geojson_endpoint(job_id: str) -> dict[str, Any]:
     return get_job_activities_geojson(job_id)
 
 
-@router.get("/jobs/{job_id}/scenario.json")
-def get_job_scenario_export_endpoint(job_id: str) -> dict[str, Any]:
-    return get_job_scenario_export(job_id)
+@router.get("/jobs/{job_id}/scenario.zip")
+def get_job_scenario_zip_endpoint(job_id: str) -> Response:
+    zip_bytes, filename = build_scenario_zip_bytes(job_id)
+    return Response(
+        content=zip_bytes,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

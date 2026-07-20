@@ -136,9 +136,15 @@ export async function getJobOutputs(jobId) {
 }
 
 export async function downloadScenarioExport(jobId) {
-  const response = await fetch(`${API_BASE}/jobs/${jobId}/scenario.json`)
+  const response = await fetch(`${API_BASE}/jobs/${jobId}/scenario.zip`)
   if (!response.ok) {
     throw new Error(`Scenario export failed: ${response.status}`)
   }
-  return response.json()
+  const blob = await response.blob()
+  const disposition = response.headers.get('Content-Disposition') || ''
+  const match = disposition.match(/filename="?([^"]+)"?/i)
+  return {
+    blob,
+    filename: match?.[1] || `${jobId}_scenario.zip`,
+  }
 }

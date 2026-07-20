@@ -50,6 +50,7 @@ const jobState = ref({
   effectiveConfig: null,
   outputs: [],
   error: null,
+  exporting: false,
 })
 const baselineReady = ref(false)
 const baselineRunId = ref(DEFAULT_BASELINE_RUN_ID)
@@ -602,23 +603,26 @@ async function startGeneration() {
 }
 
 async function exportScenario() {
-  if (!jobState.value.jobId || jobState.value.status !== 'succeeded') {
+  if (!jobState.value.jobId || jobState.value.status !== 'succeeded' || jobState.value.exporting) {
     return
   }
+  jobState.value.exporting = true
+  jobState.value.error = null
   try {
-    const payload = await downloadScenarioExport(jobState.value.jobId)
+    const { blob, filename } = await downloadScenarioExport(jobState.value.jobId)
     const runId = jobState.value.runId || 'scenario'
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' })
     const url = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href = url
-    link.download = `${runId}_scenario.json`
+    link.download = filename || `${runId}_scenario.zip`
     document.body.appendChild(link)
     link.click()
     link.remove()
-    URL.revokeObjectURL(url)
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
   } catch (error) {
-    jobState.value.error = error.message
+    jobState.value.error = error.message || 'Scenario export failed'
+  } finally {
+    jobState.value.exporting = false
   }
 }
 
