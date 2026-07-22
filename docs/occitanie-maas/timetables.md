@@ -97,8 +97,8 @@ Each operator file is a JSON array of line objects:
         "pattern_id": "p1",
         "stops": ["<point_id_A>", "<point_id_B>", "<point_id_C>"],
         "trips": [
-          { "departure_times": [480, 488, 495] },
-          { "departure_times": [510, 518, 525] }
+          { "passage_times": [480, 488, 495] },
+          { "passage_times": [510, 518, 525] }
         ]
       }
     ]
@@ -112,7 +112,7 @@ Each operator file is a JSON array of line objects:
 | `pattern_id` | Ordered stop sequence for one service variant (typically one travel direction) |
 | `stops[]` | Ordered stop `point_id`s along the pattern |
 | `trips[]` | One complete vehicle run along that pattern |
-| `departure_times[]` | Minutes from midnight at each stop; `departure_times[i]` matches `stops[i]` |
+| `passage_times[]` | Minutes from midnight when the vehicle is at each stop; `passage_times[i]` matches `stops[i]` |
 
 Each direction is its own pattern (ordered `stops[]`). There is no `direction_id` field.
 

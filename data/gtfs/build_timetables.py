@@ -718,7 +718,7 @@ def write_operator_files(
                         "pattern_id": f"p{pattern_idx}",
                         "stops": list(stops),
                         "trips": [
-                            {"departure_times": list(departure_times)}
+                            {"passage_times": list(departure_times)}
                             for departure_times in sorted(trips)
                         ],
                     }

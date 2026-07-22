@@ -35,8 +35,8 @@ def test_build_resources_includes_multimodal_layers(tmp_path):
     )
     _write_csv(
         output_path / f"{run_id}_taxi_stands.csv",
-        "name;lat;lon;nb_places;source_file",
-        "Stand A;43.6;1.44;3;taxi.json",
+        "stand_id;name;lat;lon;nb_places;zone_type;source_file",
+        "taxi_stand:wilson;Stand A;43.6;1.44;3;city_center;taxi.json",
     )
     _write_csv(
         output_path / f"{run_id}_pmr_stands.csv",
@@ -67,8 +67,12 @@ def test_build_resources_includes_multimodal_layers(tmp_path):
 
     assert resources["Carsharing"]["resources"][0]["mode"] == "Carsharing"
     assert resources["Carpooling"]["resources"][0]["capacity"] == "8"
-    assert resources["Taxi"]["points"][0]["kind"] == "taxi_stand"
+    assert resources["PMR"]["points"][0]["kind"] == "pmr_stand"
     assert resources["ParkAndRide"]["resources"][0]["id"] == "park_and_ride:pnr1"
+    assert resources["Taxi"]["resources"] == []
+    assert resources["Taxi"]["points"][0]["kind"] == "taxi_stand"
+    assert resources["Taxi"]["points"][0]["parking_capacity"] == 3
+    assert "capacity" not in resources["Taxi"]["points"][0]
 
 
 def test_build_resources_loads_pt_timetables(tmp_path):
@@ -88,7 +92,18 @@ def test_build_resources_loads_pt_timetables(tmp_path):
         "stop_id;stop_lat;stop_lon;operator",
         "s1;43.6;1.44;Tisseo",
     )
-    payload = [["abc123def456", "line:10", 0, [480, 510, 540]]]
+    payload = [
+        {
+            "line_id": "line:10",
+            "patterns": [
+                {
+                    "pattern_id": "p1",
+                    "stops": ["abc123def456"],
+                    "trips": [{"passage_times": [480, 510, 540]}],
+                }
+            ],
+        }
+    ]
     (monday / "TisseoOperator.json").write_text(json.dumps(payload), encoding="utf-8")
 
     resources = _build_resources(
@@ -140,7 +155,18 @@ def test_pack_scenario_zip_splits_demand_and_operators(tmp_path):
         "station_id;lat;lon;capacity",
         "s1;43.6;1.44;2",
     )
-    payload = [["abc123def456", "line:10", 0, [480, 510]]]
+    payload = [
+        {
+            "line_id": "line:10",
+            "patterns": [
+                {
+                    "pattern_id": "p1",
+                    "stops": ["abc123def456"],
+                    "trips": [{"passage_times": [480, 510]}],
+                }
+            ],
+        }
+    ]
     (monday / "TisseoOperator.json").write_text(json.dumps(payload), encoding="utf-8")
 
     resources = _build_resources(
@@ -151,9 +177,8 @@ def test_pack_scenario_zip_splits_demand_and_operators(tmp_path):
         include_timetables=False,
     )
     demand = {
-        "persons": [{"person_id": "1"}],
+        "persons": [],
         "requests": [],
-        "persons_without_requests": ["1"],
         "profiles_path": "/tmp/profiles.yml",
     }
 
@@ -175,8 +200,7 @@ def test_pack_scenario_zip_splits_demand_and_operators(tmp_path):
 
         scenario = json.loads(zf.read("scenario.json"))
         assert "resources" not in scenario
-        assert scenario["persons"] == [{"person_id": "1"}]
-        assert scenario["persons_without_requests"] == ["1"]
+        assert scenario["persons"] == []
 
         tisseo = json.loads(zf.read("operators/TisseoOperator.json"))
         assert tisseo["timetables"] == payload
@@ -184,3 +208,48 @@ def test_pack_scenario_zip_splits_demand_and_operators(tmp_path):
 
         carsharing = json.loads(zf.read("operators/Carsharing.json"))
         assert carsharing["timetables"] == []
+
+
+def test_build_resources_loads_taxi_fleet_file(tmp_path):
+    output_path = Path(tmp_path)
+    run_id = "run_taxi_fleet"
+    fleet_dir = output_path / "fleet_run"
+    fleet_dir.mkdir()
+    fleet_payload = {
+        "operator_id": "Taxi",
+        "modes": [{"id": "Taxi", "operator_id": "Taxi", "free": False, "restricted_to": []}],
+        "resources": [
+            {
+                "id": "taxi_0001",
+                "mode": "Taxi",
+                "operator_id": "Taxi",
+                "passenger_capacity": 4,
+                "wheelchair_accessible": False,
+                "start_stand": "taxi_stand:wilson",
+                "availability_period": {"start": 480, "end": 1200},
+                "bookings": [],
+            }
+        ],
+        "points": [
+            {
+                "id": "taxi_stand:wilson",
+                "lat": 43.6,
+                "lon": 1.44,
+                "kind": "taxi_stand",
+                "name": "Stand A",
+                "parking_capacity": 3,
+                "zone_type": "city_center",
+            }
+        ],
+        "positions": [],
+        "timetables": [],
+    }
+    (fleet_dir / "Taxi.json").write_text(json.dumps(fleet_payload), encoding="utf-8")
+
+    resources = _build_resources(
+        output_path,
+        run_id,
+        taxi_fleet_dir=fleet_dir,
+    )
+    assert resources["Taxi"]["resources"][0]["id"] == "taxi_0001"
+    assert resources["Taxi"]["points"][0]["parking_capacity"] == 3

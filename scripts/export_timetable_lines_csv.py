@@ -95,7 +95,7 @@ def collect_rows(run_dir: Path, meta: dict[str, dict[str, str]]) -> list[dict]:
                     for trip in trips:
                         if not isinstance(trip, dict):
                             continue
-                        times = trip.get("departure_times") or []
+                        times = trip.get("passage_times") or trip.get("departure_times") or []
                         if not isinstance(times, list):
                             continue
                         bucket["trips"] += 1

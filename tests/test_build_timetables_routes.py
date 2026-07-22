@@ -190,10 +190,10 @@ def test_process_feed_groups_trips_by_ordered_stop_pattern(tmp_path):
     assert forward["stops"] == [point_a, point_b, point_c]
     assert reverse["stops"] == [point_d, point_c, point_b, point_a]
     assert forward["trips"] == [
-        {"departure_times": [480, 488, 495]},
-        {"departure_times": [490, 498, 505]},
+        {"passage_times": [480, 488, 495]},
+        {"passage_times": [490, 498, 505]},
     ]
-    assert reverse["trips"] == [{"departure_times": [540, 547, 554, 561]}]
+    assert reverse["trips"] == [{"passage_times": [540, 547, 554, 561]}]
 
 
 def test_process_feed_clips_cross_border_trips_to_baseline_segments(tmp_path):
@@ -274,5 +274,5 @@ def test_process_feed_clips_cross_border_trips_to_baseline_segments(tmp_path):
     patterns = {tuple(p["stops"]): p for line in payload for p in line["patterns"]}
     assert (point_a, point_b) in patterns
     assert (point_c,) in patterns
-    assert patterns[(point_a, point_b)]["trips"] == [{"departure_times": [480, 488]}]
-    assert patterns[(point_c,)]["trips"] == [{"departure_times": [600]}]
+    assert patterns[(point_a, point_b)]["trips"] == [{"passage_times": [480, 488]}]
+    assert patterns[(point_c,)]["trips"] == [{"passage_times": [600]}]
