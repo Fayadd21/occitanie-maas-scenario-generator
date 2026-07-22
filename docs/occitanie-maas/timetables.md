@@ -18,13 +18,41 @@ From the repo root:
 uv run data/gtfs/build_timetables.py
 ```
 
-Defaults:
+### CLI options
 
-| Option | Default |
-|--------|---------|
-| `--gtfs-dir` | `data/gtfs_occitanie/` |
-| `--baseline-dir` | `baseline_run_path` or `output/baselines/<baseline_run_id>/` from `config_occitanie.yml` |
-| `--output-dir` | `data/gtfs_occitanie/timetables/` |
+**Normal build** (default): generate timetables, export CSVs, then run validation.
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `--gtfs-dir` | `data/gtfs_occitanie/` | Folder of GTFS `.zip` feeds |
+| `--baseline-dir` | From `config_occitanie.yml` | Baseline with `*_gtfs_routes.csv` and `*_gtfs_stops.csv` |
+| `--output-dir` | `data/gtfs_occitanie/timetables/` | Parent folder for timestamped runs |
+| `--timestamp` | Current time (`YYYYMMDD_HHMMSS`) | Output folder name under `--output-dir` |
+| `--weekday` | All seven weekdays | Day(s) to build; repeat for several, e.g. `--weekday monday --weekday sunday` |
+| `--jobs` | omitted / auto(0) | Max weekdays built in parallel (see below) |
+
+Validation (`validation_report.json`) **always runs at the end of a normal build** — no flag required.
+
+**Validate-only** (no rebuild): pass both flags below.
+
+| Option | Default | Meaning |
+|--------|---------|---------|
+| `--validate` | not set | Set to skip generation and only validate an existing run |
+| `--run-dir` | — | Required with `--validate`: existing timetable run folder |
+
+**`--jobs`:** Each weekday (monday, tuesday, …) is built independently. GTFS zips are
+loaded once, then weekday folders are written. `--jobs` caps how many weekdays run
+at the same time:
+
+| Value | Behaviour |
+|-------|-----------|
+| omitted or `0` | Auto: `min(weekdays to build, CPU count)`. **All seven weekdays → 7 workers** on a machine with ≥7 cores (what you see as `parallel jobs: 7` in the log). |
+| `1` | Sequential (one weekday at a time) |
+| `4` | At most four weekdays in parallel (never more than the weekdays you asked for) |
+
+Example: `--jobs 4` with all seven weekdays uses four worker processes; when one
+finishes, the next weekday starts until all seven are done. With no `--jobs` flag
+and all seven weekdays, the script uses seven workers if the CPU count allows it.
 
 The script creates a timestamped folder, e.g.
 `data/gtfs_occitanie/timetables/20260717_163230/`, with one subdirectory per weekday
@@ -37,40 +65,61 @@ Generation also writes:
 - `validation_report.json` — zero-departure diagnosis (see below)
 - `lines_by_weekday.csv` and `lines_by_weekday_summary.csv` — route coverage summary
 
-### Build one weekday
+**Examples:**
 
 ```bash
+# All weekdays (typically 7 parallel workers if CPU count ≥ 7)
+uv run data/gtfs/build_timetables.py
+
+# Monday only
 uv run data/gtfs/build_timetables.py --weekday monday
-```
 
-Repeat `--weekday` for multiple days. Omit it to build all seven weekdays.
+# Saturday and Sunday, four parallel workers
+uv run data/gtfs/build_timetables.py --weekday saturday --weekday sunday --jobs 4
 
-### Custom output stamp
-
-```bash
+# Fixed output folder name
 uv run data/gtfs/build_timetables.py --timestamp smoke_monday
+
+# Re-validate an existing run (no rebuild)
+uv run data/gtfs/build_timetables.py --validate --run-dir data/gtfs_occitanie/timetables/20260717_163230
 ```
 
 ## Entry format
 
-Each operator file is a JSON array. Each row is:
+Each operator file is a JSON array of line objects:
 
 ```json
-["<point_id>", "line:<route_id>", <direction_id>, [<departure_minutes>, ...]]
+[
+  {
+    "line_id": "line:10",
+    "patterns": [
+      {
+        "pattern_id": "p1",
+        "stops": ["<point_id_A>", "<point_id_B>", "<point_id_C>"],
+        "trips": [
+          { "departure_times": [480, 488, 495] },
+          { "departure_times": [510, 518, 525] }
+        ]
+      }
+    ]
+  }
+]
 ```
 
 | Field | Meaning |
 |-------|---------|
-| `point_id` | 12-char SHA1 of stop lat/lon + `stop:{OperatorId}` (same hashing as scenario export) |
-| `line:<route_id>` | Baseline route id (matches `*_gtfs_routes.csv`) |
-| `direction_id` | GTFS `trips.direction_id`: `0` or `1` (missing → `0`). Opposite directions are **separate rows**, not merged |
-| departure minutes | Minutes from midnight (GTFS `stop_times.departure_time`) |
+| `line_id` | Baseline route id (matches `*_gtfs_routes.csv`) |
+| `pattern_id` | Ordered stop sequence for one service variant (typically one travel direction) |
+| `stops[]` | Ordered stop `point_id`s along the pattern |
+| `trips[]` | One complete vehicle run along that pattern |
+| `departure_times[]` | Minutes from midnight at each stop; `departure_times[i]` matches `stops[i]` |
 
-### Direction ids
+Each direction is its own pattern (ordered `stops[]`). There is no `direction_id` field.
 
-`0` and `1` are the two travel directions of a route in GTFS. Which physical
-direction each value represents is defined by the agency (often outbound vs inbound).
-Use `trip_headsign` or stop order in the raw feed if you need the human label.
+Cross-border trips export only contiguous in-baseline stop runs; an out-of-region stop splits the trip into separate patterns.
+
+`point_id` values are 12-char SHA1 hashes of stop lat/lon +
+`stop:{OperatorId}` (same hashing as scenario export).
 
 ## Wire into scenarios
 
@@ -103,8 +152,8 @@ If `timetables_path` is unset, operators export with empty `"timetables": []`.
 
 ## Validate an existing run
 
-Validation runs automatically at the end of `build_timetables.py`. To re-run only
-validation:
+Every full build ends with validation and writes `validation_report.json`. To run
+validation again without rebuilding:
 
 ```bash
 uv run data/gtfs/build_timetables.py --validate --run-dir data/gtfs_occitanie/timetables/20260717_163230

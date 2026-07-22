@@ -72,20 +72,34 @@ def collect_rows(run_dir: Path, meta: dict[str, dict[str, str]]) -> list[dict]:
             }:
                 continue
             payload = json.loads(path.read_text(encoding="utf-8"))
+            if not isinstance(payload, list):
+                continue
             by_line: dict[str, dict] = {}
             for entry in payload:
-                if not isinstance(entry, list) or len(entry) < 3:
+                if not isinstance(entry, dict):
                     continue
-                line_id = entry[1]
-                times = entry[3] if len(entry) >= 4 and isinstance(entry[3], list) else entry[2]
-                if not isinstance(times, list):
+                line_id = str(entry.get("line_id", ""))
+                if not line_id:
                     continue
                 bucket = by_line.setdefault(
-                    str(line_id),
-                    {"stop_entries": 0, "departure_events": 0},
+                    line_id,
+                    {"patterns": 0, "stop_slots": 0, "trips": 0, "departure_events": 0},
                 )
-                bucket["stop_entries"] += 1
-                bucket["departure_events"] += len(times)
+                for pattern in entry.get("patterns") or []:
+                    if not isinstance(pattern, dict):
+                        continue
+                    stops = pattern.get("stops") or []
+                    trips = pattern.get("trips") or []
+                    bucket["patterns"] += 1
+                    bucket["stop_slots"] += len(stops)
+                    for trip in trips:
+                        if not isinstance(trip, dict):
+                            continue
+                        times = trip.get("departure_times") or []
+                        if not isinstance(times, list):
+                            continue
+                        bucket["trips"] += 1
+                        bucket["departure_events"] += len(times)
 
             for line_id, agg in sorted(by_line.items()):
                 route_id, info = resolve_route_meta(line_id, meta)
@@ -100,7 +114,9 @@ def collect_rows(run_dir: Path, meta: dict[str, dict[str, str]]) -> list[dict]:
                         "route_long_name": info["route_long_name"],
                         "route_type": info["route_type"],
                         "mode": info["mode"],
-                        "stop_entries": agg["stop_entries"],
+                        "patterns": agg["patterns"],
+                        "stop_slots": agg["stop_slots"],
+                        "trips": agg["trips"],
                         "departure_events": agg["departure_events"],
                     }
                 )
@@ -118,7 +134,9 @@ def write_detail_csv(path: Path, rows: list[dict]) -> None:
         "route_long_name",
         "route_type",
         "mode",
-        "stop_entries",
+        "patterns",
+        "stop_slots",
+        "trips",
         "departure_events",
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
@@ -137,7 +155,9 @@ def write_summary_csv(path: Path, rows: list[dict]) -> None:
                     "operator_file",
                     "operator",
                     "lines",
-                    "stop_entries",
+                    "patterns",
+                    "stop_slots",
+                    "trips",
                     "departure_events",
                 ],
             )
@@ -156,7 +176,9 @@ def write_summary_csv(path: Path, rows: list[dict]) -> None:
                 "operator_file": "(all)",
                 "operator": "(all)",
                 "lines": int(day["route_id"].nunique()),
-                "stop_entries": int(day["stop_entries"].sum()),
+                "patterns": int(day["patterns"].sum()),
+                "stop_slots": int(day["stop_slots"].sum()),
+                "trips": int(day["trips"].sum()),
                 "departure_events": int(day["departure_events"].sum()),
             }
         )
@@ -167,7 +189,9 @@ def write_summary_csv(path: Path, rows: list[dict]) -> None:
                     "operator_file": op_file,
                     "operator": op,
                     "lines": int(group["route_id"].nunique()),
-                    "stop_entries": int(group["stop_entries"].sum()),
+                    "patterns": int(group["patterns"].sum()),
+                    "stop_slots": int(group["stop_slots"].sum()),
+                    "trips": int(group["trips"].sum()),
                     "departure_events": int(group["departure_events"].sum()),
                 }
             )
@@ -180,7 +204,9 @@ def write_summary_csv(path: Path, rows: list[dict]) -> None:
                 "operator_file",
                 "operator",
                 "lines",
-                "stop_entries",
+                "patterns",
+                "stop_slots",
+                "trips",
                 "departure_events",
             ],
         )

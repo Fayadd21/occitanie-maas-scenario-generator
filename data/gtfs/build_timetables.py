@@ -4,17 +4,19 @@ import argparse
 import ast
 import hashlib
 import json
+import os
 import re
 import sys
 import unicodedata
 import zipfile
 from collections import Counter, defaultdict
+from concurrent.futures import ProcessPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
-
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _GTFS_OCCITANIE_DIR = _REPO_ROOT / "data" / "gtfs_occitanie"
 _SCRIPTS_DIR = _REPO_ROOT / "scripts"
@@ -251,9 +253,8 @@ def build_route_lookup(route_by_id: dict[str, dict[str, Any]]) -> dict[tuple[str
     return lookup
 
 
-def infer_feed_operator_ids(zip_path: Path) -> set[str]:
+def infer_feed_operator_ids_from_agency(df_agency: pd.DataFrame | None, zip_stem: str) -> set[str]:
     operator_ids: set[str] = set()
-    df_agency = read_gtfs_table(zip_path, "agency.txt")
     if df_agency is not None:
         for column in ("agency_name", "agency_id", "agency_url"):
             if column not in df_agency.columns:
@@ -262,9 +263,146 @@ def infer_feed_operator_ids(zip_path: Path) -> set[str]:
                 text = value.strip()
                 if text:
                     operator_ids.add(normalize_operator_id(text))
-    operator_ids.add(normalize_operator_id(zip_path.stem.replace("_", " ")))
+    operator_ids.add(normalize_operator_id(zip_stem.replace("_", " ")))
     return operator_ids
 
+
+def infer_feed_operator_ids(zip_path: Path) -> set[str]:
+    return infer_feed_operator_ids_from_agency(read_gtfs_table(zip_path, "agency.txt"), zip_path.stem)
+
+
+def build_feed_route_map_from_tables(
+    df_routes: pd.DataFrame | None,
+    feed_operator_ids: set[str],
+    route_by_id: dict[str, dict[str, Any]],
+    route_lookup: dict[tuple[str, str], str],
+) -> dict[str, str]:
+    if df_routes is None or "route_id" not in df_routes.columns:
+        return {}
+
+    raw_to_baseline: dict[str, str] = {}
+    for raw_id in df_routes["route_id"].astype(str):
+        baseline_id = resolve_baseline_route_id(raw_id, route_by_id, route_lookup, feed_operator_ids)
+        if baseline_id is not None:
+            raw_to_baseline[raw_id] = baseline_id
+    return raw_to_baseline
+
+
+def build_feed_route_map(
+    zip_path: Path,
+    route_by_id: dict[str, dict[str, Any]],
+    route_lookup: dict[tuple[str, str], str],
+) -> dict[str, str]:
+    feed_operator_ids = infer_feed_operator_ids(zip_path)
+    df_routes = read_gtfs_table(zip_path, "routes.txt")
+    return build_feed_route_map_from_tables(df_routes, feed_operator_ids, route_by_id, route_lookup)
+
+
+def build_point_lookup_by_operator(
+    stop_by_id: dict[str, dict[str, Any]],
+) -> dict[str, dict[str, str]]:
+    operator_ids: set[str] = set()
+    for meta in stop_by_id.values():
+        operator_ids.update(meta.get("operator_ids", []))
+        operator_ids.update(meta.get("point_ids", {}).keys())
+
+    lookup: dict[str, dict[str, str]] = {}
+    for operator_id in operator_ids:
+        op_map: dict[str, str] = {}
+        for stop_id, meta in stop_by_id.items():
+            point_id = meta.get("point_ids", {}).get(operator_id)
+            if point_id is None:
+                point_id = hash_point(meta["lat"], meta["lon"], f"stop:{operator_id}")
+            op_map[stop_id] = point_id
+        lookup[operator_id] = op_map
+    return lookup
+
+
+def _stop_times_by_trip_from_frame(df_stop_times: pd.DataFrame) -> dict[str, list[tuple[str, int]]]:
+    if len(df_stop_times) == 0 or not {"trip_id", "stop_id", "departure_time"}.issubset(df_stop_times.columns):
+        return {}
+
+    times = df_stop_times.copy()
+    times["trip_id"] = times["trip_id"].astype(str)
+    times["stop_id"] = times["stop_id"].astype(str)
+    times["dep_min"] = times["departure_time"].map(gtfs_hhmmss_to_minutes)
+    times = times.dropna(subset=["dep_min", "stop_id"])
+    if len(times) == 0:
+        return {}
+
+    if "stop_sequence" in times.columns:
+        times["_seq"] = pd.to_numeric(times["stop_sequence"], errors="coerce")
+        times = times.sort_values(["trip_id", "_seq"], kind="mergesort")
+    else:
+        times = times.sort_values(["trip_id"], kind="mergesort")
+
+    by_trip: dict[str, list[tuple[str, int]]] = {}
+    for trip_id, group in times.groupby("trip_id", sort=False):
+        by_trip[str(trip_id)] = list(
+            zip(group["stop_id"].tolist(), group["dep_min"].astype(int).tolist(), strict=False)
+        )
+    return by_trip
+
+
+@dataclass(frozen=True)
+class FeedCache:
+    name: str
+    feed_operator_ids: frozenset[str]
+    feed_route_map: dict[str, str]
+    df_calendar: pd.DataFrame | None
+    df_dates: pd.DataFrame | None
+    df_trips: pd.DataFrame | None
+    df_frequencies: pd.DataFrame | None
+    stop_times_by_trip: dict[str, list[tuple[str, int]]]
+
+
+def load_feed_cache(
+    zip_path: Path,
+    route_by_id: dict[str, dict[str, Any]],
+    route_lookup: dict[tuple[str, str], str],
+) -> FeedCache:
+    df_agency = read_gtfs_table(zip_path, "agency.txt")
+    feed_operator_ids = infer_feed_operator_ids_from_agency(df_agency, zip_path.stem)
+    df_routes = read_gtfs_table(zip_path, "routes.txt")
+    feed_route_map = build_feed_route_map_from_tables(
+        df_routes,
+        set(feed_operator_ids),
+        route_by_id,
+        route_lookup,
+    )
+    df_stop_times = read_gtfs_table(zip_path, "stop_times.txt")
+    stop_times_by_trip = (
+        _stop_times_by_trip_from_frame(df_stop_times)
+        if df_stop_times is not None
+        else {}
+    )
+    df_frequencies = read_gtfs_table(zip_path, "frequencies.txt")
+    if df_frequencies is not None and len(df_frequencies) > 0 and "trip_id" in df_frequencies.columns:
+        df_frequencies = df_frequencies.copy()
+        df_frequencies["trip_id"] = df_frequencies["trip_id"].astype(str)
+
+    return FeedCache(
+        name=zip_path.name,
+        feed_operator_ids=frozenset(feed_operator_ids),
+        feed_route_map=feed_route_map,
+        df_calendar=read_gtfs_table(zip_path, "calendar.txt"),
+        df_dates=read_gtfs_table(zip_path, "calendar_dates.txt"),
+        df_trips=read_gtfs_table(zip_path, "trips.txt"),
+        df_frequencies=df_frequencies,
+        stop_times_by_trip=stop_times_by_trip,
+    )
+
+
+def load_feed_caches(
+    zip_paths: list[Path],
+    route_by_id: dict[str, dict[str, Any]],
+    route_lookup: dict[tuple[str, str], str],
+) -> list[FeedCache]:
+    caches: list[FeedCache] = []
+    for zip_path in zip_paths:
+        print(f"  loading {zip_path.name} ...", flush=True)
+        caches.append(load_feed_cache(zip_path, route_by_id, route_lookup))
+    return caches
 
 def resolve_baseline_route_id(
     raw_route_id: str,
@@ -292,44 +430,85 @@ def resolve_baseline_route_id(
     return None
 
 
-def build_feed_route_map(
-    zip_path: Path,
-    route_by_id: dict[str, dict[str, Any]],
-    route_lookup: dict[tuple[str, str], str],
-) -> dict[str, str]:
-    feed_operator_ids = infer_feed_operator_ids(zip_path)
-    df_routes = read_gtfs_table(zip_path, "routes.txt")
-    if df_routes is None or "route_id" not in df_routes.columns:
-        return {}
-
-    raw_to_baseline: dict[str, str] = {}
-    for raw_id in df_routes["route_id"].astype(str):
-        baseline_id = resolve_baseline_route_id(raw_id, route_by_id, route_lookup, feed_operator_ids)
-        if baseline_id is not None:
-            raw_to_baseline[raw_id] = baseline_id
-    return raw_to_baseline
+OperatorTimetableAccum = dict[str, dict[str, dict[tuple[str, ...], set[tuple[int, ...]]]]]
+PointLookupByOperator = dict[str, dict[str, str]]
 
 
-def expand_frequency_departures(
-    trip_stop_times: pd.DataFrame,
+def segments_from_trip_rows(
+    rows: list[tuple[str, int]],
+    operator_id: str,
+    point_lookup: PointLookupByOperator,
+) -> list[tuple[tuple[str, ...], tuple[int, ...]]]:
+    op_lookup = point_lookup.get(operator_id, {})
+    segments: list[tuple[tuple[str, ...], tuple[int, ...]]] = []
+    point_ids: list[str] = []
+    departure_times: list[int] = []
+
+    def flush() -> None:
+        if point_ids:
+            segments.append((tuple(point_ids), tuple(departure_times)))
+
+    for stop_id, dep_min in rows:
+        point_id = op_lookup.get(stop_id)
+        if point_id is None:
+            flush()
+            point_ids = []
+            departure_times = []
+            continue
+        point_ids.append(point_id)
+        departure_times.append(int(dep_min))
+
+    flush()
+    return segments
+
+
+def baseline_segment_templates_from_rows(
+    rows: list[tuple[str, int]],
+    operator_id: str,
+    point_lookup: PointLookupByOperator,
+) -> list[tuple[tuple[str, ...], tuple[int, ...]]]:
+    if not rows:
+        return []
+
+    base = rows[0][1]
+    segments: list[tuple[tuple[str, ...], tuple[int, ...]]] = []
+    point_ids: list[str] = []
+    offsets: list[int] = []
+    op_lookup = point_lookup.get(operator_id, {})
+
+    def flush() -> None:
+        if point_ids:
+            segments.append((tuple(point_ids), tuple(offsets)))
+
+    for stop_id, dep_min in rows:
+        point_id = op_lookup.get(stop_id)
+        if point_id is None:
+            flush()
+            point_ids = []
+            offsets = []
+            continue
+        point_ids.append(point_id)
+        offsets.append(int(dep_min) - base)
+
+    flush()
+    return segments
+
+
+def expand_frequency_trip_vectors_from_rows(
+    rows: list[tuple[str, int]],
     df_frequencies: pd.DataFrame,
-) -> list[tuple[str, int]]:
-    if len(trip_stop_times) == 0 or len(df_frequencies) == 0:
+    *,
+    operator_id: str,
+    point_lookup: PointLookupByOperator,
+) -> list[tuple[tuple[str, ...], tuple[int, ...]]]:
+    if not rows or len(df_frequencies) == 0:
         return []
 
-    times = trip_stop_times.copy()
-    times["dep_min"] = times["departure_time"].map(gtfs_hhmmss_to_minutes)
-    times = times.dropna(subset=["dep_min", "stop_id"])
-    if len(times) == 0:
+    segment_templates = baseline_segment_templates_from_rows(rows, operator_id, point_lookup)
+    if not segment_templates:
         return []
 
-    if "stop_sequence" in times.columns:
-        times["_seq"] = pd.to_numeric(times["stop_sequence"], errors="coerce")
-        times = times.sort_values("_seq", kind="mergesort")
-    base = int(times["dep_min"].iloc[0])
-    offsets = [(str(row["stop_id"]), int(row["dep_min"]) - base) for _, row in times.iterrows()]
-
-    expanded: list[tuple[str, int]] = []
+    expanded: list[tuple[tuple[str, ...], tuple[int, ...]]] = []
     for _, freq in df_frequencies.iterrows():
         start = gtfs_hhmmss_to_minutes(freq.get("start_time"))
         end = gtfs_hhmmss_to_minutes(freq.get("end_time"))
@@ -343,22 +522,157 @@ def expand_frequency_departures(
         end_sec = end * 60
         while t_sec < end_sec:
             trip_start_min = t_sec // 60
-            for stop_id, offset in offsets:
-                expanded.append((stop_id, int(trip_start_min + offset)))
+            for stops, offsets in segment_templates:
+                departure_times = tuple(int(trip_start_min + offset) for offset in offsets)
+                expanded.append((stops, departure_times))
             t_sec += headway
     return expanded
 
+def record_trip(
+    accum: OperatorTimetableAccum,
+    *,
+    operator_id: str,
+    line_id: str,
+    stops: tuple[str, ...],
+    departure_times: tuple[int, ...],
+) -> bool:
+    if len(stops) == 0 or len(stops) != len(departure_times):
+        return False
+    accum[operator_id][line_id][stops].add(departure_times)
+    return True
 
-def parse_direction_id(value: Any) -> int:
-    if value is None or (isinstance(value, float) and pd.isna(value)):
-        return 0
-    text = str(value).strip()
-    if not text:
-        return 0
-    try:
-        return int(float(text))
-    except ValueError:
-        return 0
+
+def process_cached_feed(
+    feed: FeedCache,
+    route_by_id: dict[str, dict[str, Any]],
+    point_lookup: PointLookupByOperator,
+    weekday: str,
+    weekday_index: int,
+    accum: OperatorTimetableAccum,
+    stats: dict[str, Any],
+) -> None:
+    service_ids = service_ids_for_weekday(feed.df_calendar, feed.df_dates, weekday, weekday_index)
+    if not service_ids:
+        stats["feeds_no_service"].append(feed.name)
+        return
+
+    df_trips = feed.df_trips
+    if df_trips is None or feed.stop_times_by_trip is None:
+        stats["feeds_missing_tables"].append(feed.name)
+        return
+    if not {"trip_id", "route_id", "service_id"}.issubset(df_trips.columns):
+        stats["feeds_missing_tables"].append(feed.name)
+        return
+
+    df_trips = df_trips.copy()
+    df_trips["trip_id"] = df_trips["trip_id"].astype(str)
+    df_trips["route_id"] = df_trips["route_id"].astype(str)
+    df_trips["service_id"] = df_trips["service_id"].astype(str)
+    df_trips["baseline_route_id"] = df_trips["route_id"].map(feed.feed_route_map)
+    df_trips = df_trips[df_trips["service_id"].isin(service_ids) & df_trips["baseline_route_id"].notna()]
+    if len(df_trips) == 0:
+        stats["feeds_no_matching_trips"].append(feed.name)
+        return
+
+    trip_to_route = dict(zip(df_trips["trip_id"], df_trips["baseline_route_id"].astype(str)))
+    active_trip_ids = set(trip_to_route.keys())
+    if not active_trip_ids:
+        stats["feeds_no_matching_trips"].append(feed.name)
+        return
+
+    df_frequencies = feed.df_frequencies
+    frequency_trip_ids: set[str] = set()
+    if df_frequencies is not None and len(df_frequencies) > 0 and "trip_id" in df_frequencies.columns:
+        frequency_trip_ids = set(df_frequencies["trip_id"].astype(str)) & active_trip_ids
+
+    matched_trips = 0
+    skipped_unknown_stop = 0
+    skipped_operator_mismatch = 0
+    departure_rows = 0
+
+    fixed_trip_ids = active_trip_ids - frequency_trip_ids
+    for trip_id in fixed_trip_ids:
+        route_id = trip_to_route.get(trip_id)
+        route_meta = route_by_id.get(route_id or "")
+        if route_meta is None:
+            continue
+        rows = feed.stop_times_by_trip.get(trip_id)
+        if not rows:
+            continue
+        segments = segments_from_trip_rows(
+            rows,
+            route_meta["operator_id"],
+            point_lookup,
+        )
+        if not segments:
+            skipped_unknown_stop += 1
+            continue
+        for stops, departure_times in segments:
+            if record_trip(
+                accum,
+                operator_id=route_meta["operator_id"],
+                line_id=route_meta["line_id"],
+                stops=stops,
+                departure_times=departure_times,
+            ):
+                matched_trips += 1
+                departure_rows += len(departure_times)
+
+    if frequency_trip_ids and df_frequencies is not None:
+        freqs_by_trip = {
+            str(trip_id): group
+            for trip_id, group in df_frequencies.groupby("trip_id", sort=False)
+        }
+        for trip_id in frequency_trip_ids:
+            route_id = trip_to_route.get(trip_id)
+            route_meta = route_by_id.get(route_id or "")
+            if route_meta is None:
+                continue
+            rows = feed.stop_times_by_trip.get(trip_id)
+            if not rows:
+                skipped_unknown_stop += 1
+                continue
+            trip_freqs = freqs_by_trip.get(trip_id)
+            if trip_freqs is None or len(trip_freqs) == 0:
+                skipped_unknown_stop += 1
+                continue
+            vectors = expand_frequency_trip_vectors_from_rows(
+                rows,
+                trip_freqs,
+                operator_id=route_meta["operator_id"],
+                point_lookup=point_lookup,
+            )
+            if not vectors:
+                skipped_unknown_stop += 1
+                continue
+            for stops, departure_times in vectors:
+                if record_trip(
+                    accum,
+                    operator_id=route_meta["operator_id"],
+                    line_id=route_meta["line_id"],
+                    stops=stops,
+                    departure_times=departure_times,
+                ):
+                    matched_trips += 1
+                    departure_rows += len(departure_times)
+
+    stats["feed_rows"].append(
+        {
+            "feed": feed.name,
+            "weekday": weekday,
+            "active_services": len(service_ids),
+            "active_trips": len(active_trip_ids),
+            "matched_trips": matched_trips,
+            "departure_rows": departure_rows,
+            "skipped_unknown_stop": skipped_unknown_stop,
+            "skipped_operator_mismatch": skipped_operator_mismatch,
+            "frequency_trips": len(frequency_trip_ids),
+        }
+    )
+    print(
+        f"    trips={len(active_trip_ids)} matched={matched_trips} rows={departure_rows}",
+        flush=True,
+    )
 
 
 def process_feed(
@@ -368,143 +682,49 @@ def process_feed(
     route_lookup: dict[tuple[str, str], str],
     weekday: str,
     weekday_index: int,
-    accum: dict[str, dict[tuple[str, str, int], set[int]]],
+    accum: OperatorTimetableAccum,
     stats: dict[str, Any],
+    *,
+    point_lookup: PointLookupByOperator | None = None,
 ) -> None:
-    feed_route_map = build_feed_route_map(zip_path, route_by_id, route_lookup)
-    df_calendar = read_gtfs_table(zip_path, "calendar.txt")
-    df_dates = read_gtfs_table(zip_path, "calendar_dates.txt")
-    service_ids = service_ids_for_weekday(df_calendar, df_dates, weekday, weekday_index)
-    if not service_ids:
-        stats["feeds_no_service"].append(zip_path.name)
-        return
-
-    df_trips = read_gtfs_table(zip_path, "trips.txt")
-    df_stop_times = read_gtfs_table(zip_path, "stop_times.txt")
-    if df_trips is None or df_stop_times is None:
-        stats["feeds_missing_tables"].append(zip_path.name)
-        return
-    if not {"trip_id", "route_id", "service_id"}.issubset(df_trips.columns):
-        stats["feeds_missing_tables"].append(zip_path.name)
-        return
-    if not {"trip_id", "stop_id"}.issubset(df_stop_times.columns):
-        stats["feeds_missing_tables"].append(zip_path.name)
-        return
-
-    df_trips = df_trips.copy()
-    df_trips["trip_id"] = df_trips["trip_id"].astype(str)
-    df_trips["route_id"] = df_trips["route_id"].astype(str)
-    df_trips["service_id"] = df_trips["service_id"].astype(str)
-    if "direction_id" in df_trips.columns:
-        df_trips["direction_id"] = df_trips["direction_id"].map(parse_direction_id)
-    else:
-        df_trips["direction_id"] = 0
-
-    df_trips["baseline_route_id"] = df_trips["route_id"].map(feed_route_map)
-    df_trips = df_trips[df_trips["service_id"].isin(service_ids) & df_trips["baseline_route_id"].notna()]
-    if len(df_trips) == 0:
-        stats["feeds_no_matching_trips"].append(zip_path.name)
-        return
-
-    trip_to_route = dict(zip(df_trips["trip_id"], df_trips["baseline_route_id"].astype(str)))
-    trip_to_direction = dict(zip(df_trips["trip_id"], df_trips["direction_id"].astype(int)))
-    active_trip_ids = set(trip_to_route.keys())
-
-    df_stop_times = df_stop_times.copy()
-    df_stop_times["trip_id"] = df_stop_times["trip_id"].astype(str)
-    df_stop_times["stop_id"] = df_stop_times["stop_id"].astype(str)
-    df_stop_times = df_stop_times[df_stop_times["trip_id"].isin(active_trip_ids)]
-    if "departure_time" not in df_stop_times.columns:
-        stats["feeds_no_departures"].append(zip_path.name)
-        return
-
-    df_frequencies = read_gtfs_table(zip_path, "frequencies.txt")
-    frequency_trip_ids: set[str] = set()
-    if df_frequencies is not None and len(df_frequencies) > 0 and "trip_id" in df_frequencies.columns:
-        df_frequencies = df_frequencies.copy()
-        df_frequencies["trip_id"] = df_frequencies["trip_id"].astype(str)
-        frequency_trip_ids = set(df_frequencies["trip_id"]) & active_trip_ids
-
-    # Frequency trips are expanded separately from fixed stop_times
-    fixed = df_stop_times[~df_stop_times["trip_id"].isin(frequency_trip_ids)].copy()
-    fixed["dep_min"] = fixed["departure_time"].map(gtfs_hhmmss_to_minutes)
-    fixed = fixed.dropna(subset=["dep_min"])
-
-    rows: list[tuple[str, str, int, int]] = []  # route_id, stop_id, direction, minutes
-    if len(fixed) > 0:
-        fixed["route_id"] = fixed["trip_id"].map(trip_to_route)
-        fixed["direction_id"] = fixed["trip_id"].map(trip_to_direction).fillna(0).astype(int)
-        for route_id, stop_id, direction, minutes in zip(
-            fixed["route_id"].astype(str),
-            fixed["stop_id"].astype(str),
-            fixed["direction_id"].astype(int),
-            fixed["dep_min"].astype(int),
-        ):
-            rows.append((route_id, stop_id, int(direction), minutes))
-
-    if frequency_trip_ids and df_frequencies is not None:
-        for trip_id in frequency_trip_ids:
-            trip_times = df_stop_times[df_stop_times["trip_id"] == trip_id]
-            trip_freqs = df_frequencies[df_frequencies["trip_id"] == trip_id]
-            route_id = trip_to_route.get(trip_id)
-            if route_id is None:
-                continue
-            direction = int(trip_to_direction.get(trip_id, 0))
-            for stop_id, minutes in expand_frequency_departures(trip_times, trip_freqs):
-                rows.append((route_id, stop_id, direction, minutes))
-
-    matched = 0
-    skipped_unknown_stop = 0
-    skipped_operator_mismatch = 0
-    for route_id, stop_id, direction, minutes in rows:
-        route_meta = route_by_id.get(route_id)
-        stop_meta = stop_by_id.get(stop_id)
-        if route_meta is None:
-            continue
-        if stop_meta is None:
-            skipped_unknown_stop += 1
-            continue
-        operator_id = route_meta["operator_id"]
-        line_id = route_meta["line_id"]
-        point_id = stop_meta["point_ids"].get(operator_id)
-        if point_id is None:
-            if operator_id not in stop_meta["operator_ids"]:
-                skipped_operator_mismatch += 1
-            point_id = hash_point(stop_meta["lat"], stop_meta["lon"], f"stop:{operator_id}")
-        key = (point_id, line_id, int(direction))
-        accum[operator_id][key].add(int(minutes))
-        matched += 1
-
-    stats["feed_rows"].append(
-        {
-            "feed": zip_path.name,
-            "weekday": weekday,
-            "active_services": len(service_ids),
-            "active_trips": len(active_trip_ids),
-            "departure_rows": len(rows),
-            "matched": matched,
-            "skipped_unknown_stop": skipped_unknown_stop,
-            "skipped_operator_mismatch": skipped_operator_mismatch,
-            "frequency_trips": len(frequency_trip_ids),
-        }
+    feed = load_feed_cache(zip_path, route_by_id, route_lookup)
+    lookup = point_lookup or build_point_lookup_by_operator(stop_by_id)
+    process_cached_feed(
+        feed,
+        route_by_id,
+        lookup,
+        weekday,
+        weekday_index,
+        accum,
+        stats,
     )
 
 
 def write_operator_files(
     output_day_dir: Path,
-    accum: dict[str, dict[tuple[str, str, int], set[int]]],
+    accum: OperatorTimetableAccum,
 ) -> dict[str, int]:
     output_day_dir.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = {}
-    for operator_id, entries in sorted(accum.items()):
-        payload = [
-            [point_id, line_id, direction, sorted(times)]
-            for (point_id, line_id, direction), times in sorted(
-                entries.items(),
-                key=lambda item: (item[0][1], item[0][2], item[0][0]),
-            )
-            if times
-        ]
+    for operator_id, lines in sorted(accum.items()):
+        payload: list[dict[str, Any]] = []
+        for line_id in sorted(lines.keys()):
+            patterns_payload: list[dict[str, Any]] = []
+            for pattern_idx, (stops, trips) in enumerate(sorted(lines[line_id].items()), start=1):
+                if not trips:
+                    continue
+                patterns_payload.append(
+                    {
+                        "pattern_id": f"p{pattern_idx}",
+                        "stops": list(stops),
+                        "trips": [
+                            {"departure_times": list(departure_times)}
+                            for departure_times in sorted(trips)
+                        ],
+                    }
+                )
+            if patterns_payload:
+                payload.append({"line_id": line_id, "patterns": patterns_payload})
         path = output_day_dir / f"{operator_id}.json"
         path.write_text(json.dumps(payload, ensure_ascii=False, separators=(",", ":")), encoding="utf-8")
         counts[operator_id] = len(payload)
@@ -536,10 +756,12 @@ def load_timetable_route_ids(day_dir: Path) -> set[str]:
         if path.name in {"generation_stats.json", "validation_skeleton.json", "validation_report.json"}:
             continue
         payload = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(payload, list):
+            continue
         for entry in payload:
-            if not isinstance(entry, list) or len(entry) < 2:
+            if not isinstance(entry, dict):
                 continue
-            line_id = str(entry[1])
+            line_id = str(entry.get("line_id", ""))
             if line_id.startswith("line:"):
                 route_ids.add(line_id[len("line:") :])
     return route_ids
@@ -550,11 +772,9 @@ def classify_routes_for_weekday(
     weekday_index: int,
     missing_routes: set[str],
     baseline_stop_ids: set[str],
-    zip_paths: list[Path],
+    feed_caches: list[FeedCache],
     route_by_id: dict[str, dict[str, Any]],
-    route_lookup: dict[tuple[str, str], str],
 ) -> dict[str, str]:
-    # Prefer more specific reasons when a route appears in multiple feeds
     rank = {
         REASON_UNKNOWN: 0,
         REASON_STOPS_NOT_IN_BASELINE: 1,
@@ -571,27 +791,24 @@ def classify_routes_for_weekday(
         if rank[reason] < rank[best[route_id]]:
             best[route_id] = reason
 
-    for zip_path in zip_paths:
-        print(f"  scanning {zip_path.name} ...", flush=True)
-        feed_route_map = build_feed_route_map(zip_path, route_by_id, route_lookup)
-        feed_missing = set(feed_route_map.values()) & missing_routes
+    for feed in feed_caches:
+        print(f"  scanning {feed.name} ...", flush=True)
+        feed_missing = set(feed.feed_route_map.values()) & missing_routes
         if not feed_missing:
             continue
 
         for baseline_route_id in feed_missing:
             improve(baseline_route_id, REASON_NO_SERVICE_DAY)
 
-        df_calendar = read_gtfs_table(zip_path, "calendar.txt")
-        df_dates = read_gtfs_table(zip_path, "calendar_dates.txt")
-        service_ids = service_ids_for_weekday(df_calendar, df_dates, weekday, weekday_index)
+        service_ids = service_ids_for_weekday(feed.df_calendar, feed.df_dates, weekday, weekday_index)
         if not service_ids:
             continue
 
-        df_trips = read_gtfs_table(zip_path, "trips.txt")
+        df_trips = feed.df_trips
         if df_trips is None or not {"trip_id", "route_id", "service_id"}.issubset(df_trips.columns):
             continue
         trips = df_trips[df_trips["service_id"].astype(str).isin(service_ids)].copy()
-        trips["baseline_route_id"] = trips["route_id"].astype(str).map(feed_route_map)
+        trips["baseline_route_id"] = trips["route_id"].astype(str).map(feed.feed_route_map)
         trips = trips[trips["baseline_route_id"].notna() & trips["baseline_route_id"].isin(missing_routes)]
         if len(trips) == 0:
             continue
@@ -605,20 +822,16 @@ def classify_routes_for_weekday(
 
         routes_with_deps: set[str] = set()
         routes_with_baseline_stop: set[str] = set()
-        df_stop_times = read_gtfs_table(zip_path, "stop_times.txt")
-        if df_stop_times is not None and {"trip_id", "stop_id"}.issubset(df_stop_times.columns):
-            times = df_stop_times[df_stop_times["trip_id"].astype(str).isin(active_trip_ids)].copy()
-            if "departure_time" in times.columns:
-                times = times[times["departure_time"].astype(str).str.strip().ne("")]
-            if len(times) > 0:
-                times["trip_id"] = times["trip_id"].astype(str)
-                times["stop_id"] = times["stop_id"].astype(str)
-                times["baseline_route_id"] = times["trip_id"].map(trip_to_route)
-                routes_with_deps |= set(times["baseline_route_id"].dropna().astype(str))
-                in_baseline = times[times["stop_id"].isin(baseline_stop_ids)]
-                routes_with_baseline_stop |= set(in_baseline["baseline_route_id"].dropna().astype(str))
+        for trip_id in active_trip_ids:
+            rows = feed.stop_times_by_trip.get(trip_id)
+            if not rows:
+                continue
+            route_id = trip_to_route[trip_id]
+            routes_with_deps.add(route_id)
+            if any(stop_id in baseline_stop_ids for stop_id, _ in rows):
+                routes_with_baseline_stop.add(route_id)
 
-        df_freq = read_gtfs_table(zip_path, "frequencies.txt")
+        df_freq = feed.df_frequencies
         if df_freq is not None and "trip_id" in df_freq.columns:
             for trip_id in set(df_freq["trip_id"].astype(str)) & active_trip_ids:
                 routes_with_deps.add(trip_to_route[trip_id])
@@ -637,13 +850,17 @@ def validate_run(
     baseline_dir: Path,
     gtfs_dir: Path,
     weekdays: tuple[str, ...] = WEEKDAYS,
+    feed_caches: list[FeedCache] | None = None,
 ) -> dict:
     stop_by_id, route_by_id = load_baseline_lookups(baseline_dir)
     route_lookup = build_route_lookup(route_by_id)
     baseline_stop_ids = set(stop_by_id.keys())
-    zip_paths = sorted(gtfs_dir.glob("*.zip"))
-    if not zip_paths:
-        raise FileNotFoundError(f"No GTFS zip files in {gtfs_dir}")
+    if feed_caches is None:
+        zip_paths = sorted(gtfs_dir.glob("*.zip"))
+        if not zip_paths:
+            raise FileNotFoundError(f"No GTFS zip files in {gtfs_dir}")
+        print("[validation] loading GTFS feeds ...", flush=True)
+        feed_caches = load_feed_caches(zip_paths, route_by_id, route_lookup)
 
     report: dict = {
         "run_dir": str(run_dir),
@@ -666,9 +883,8 @@ def validate_run(
             weekday_index,
             missing,
             baseline_stop_ids,
-            zip_paths,
+            feed_caches,
             route_by_id,
-            route_lookup,
         )
         reasons: dict[str, list[str]] = defaultdict(list)
         reason_counts: Counter[str] = Counter()
@@ -691,12 +907,63 @@ def validate_run(
     return report
 
 
+def _resolve_job_count(jobs: int, n_weekdays: int) -> int:
+    if n_weekdays <= 1:
+        return 1
+    if jobs <= 0:
+        return min(n_weekdays, os.cpu_count() or 1)
+    return max(1, min(jobs, n_weekdays))
+
+
+def build_one_weekday(
+    weekday: str,
+    weekday_index: int,
+    run_dir: Path,
+    feed_caches: list[FeedCache],
+    route_by_id: dict[str, dict[str, Any]],
+    point_lookup: PointLookupByOperator,
+) -> tuple[str, dict[str, Any], set[str]]:
+    print(f"\n=== {weekday} ===", flush=True)
+    accum: OperatorTimetableAccum = defaultdict(lambda: defaultdict(lambda: defaultdict(set)))
+    day_stats: dict[str, Any] = {
+        "feeds_no_service": [],
+        "feeds_missing_tables": [],
+        "feeds_no_matching_trips": [],
+        "feeds_no_departures": [],
+        "feed_rows": [],
+    }
+    for feed in feed_caches:
+        print(f"  {feed.name} ...", flush=True)
+        process_cached_feed(
+            feed,
+            route_by_id,
+            point_lookup,
+            weekday,
+            weekday_index,
+            accum,
+            day_stats,
+        )
+
+    counts = write_operator_files(run_dir / weekday, accum)
+    lines_with_times: set[str] = set()
+    for lines in accum.values():
+        for line_id, patterns in lines.items():
+            if any(patterns.values()):
+                lines_with_times.add(line_id[len("line:") :])
+
+    day_stats["operators"] = counts
+    day_stats["routes_with_departures"] = len(lines_with_times)
+    print(f"  operators: {len(counts)}  routes with times: {len(lines_with_times)}", flush=True)
+    return weekday, day_stats, lines_with_times
+
+
 def generate(
     gtfs_dir: Path,
     baseline_dir: Path,
     output_dir: Path,
     timestamp: str | None = None,
     weekdays: tuple[str, ...] = WEEKDAYS,
+    jobs: int = 0,
 ) -> Path:
     stop_by_id, route_by_id = load_baseline_lookups(baseline_dir)
     route_lookup = build_route_lookup(route_by_id)
@@ -708,11 +975,17 @@ def generate(
     run_dir = output_dir / stamp
     run_dir.mkdir(parents=True, exist_ok=True)
 
+    job_count = _resolve_job_count(jobs, len(weekdays))
     print(f"[start] building timetables")
     print(f"  baseline: {baseline_dir}")
     print(f"  stops={len(stop_by_id)} routes={len(route_by_id)} feeds={len(zip_paths)}")
     print(f"  weekdays: {', '.join(weekdays)}")
+    print(f"  parallel jobs: {job_count}")
     print(f"  output: {run_dir}")
+
+    print("\n[loading GTFS feeds]", flush=True)
+    feed_caches = load_feed_caches(zip_paths, route_by_id, route_lookup)
+    point_lookup = build_point_lookup_by_operator(stop_by_id)
 
     per_weekday_lines: dict[str, set[str]] = {day: set() for day in weekdays}
     all_stats: dict[str, Any] = {
@@ -723,46 +996,41 @@ def generate(
         "baseline_routes": len(route_by_id),
         "feeds": [p.name for p in zip_paths],
         "weekdays": list(weekdays),
+        "jobs": job_count,
         "days": {},
     }
 
     weekday_index_by_name = {name: idx for idx, name in enumerate(WEEKDAYS)}
-    for weekday in weekdays:
-        weekday_index = weekday_index_by_name[weekday]
-        print(f"\n=== {weekday} ===")
-        accum: dict[str, dict[tuple[str, str, int], set[int]]] = defaultdict(lambda: defaultdict(set))
-        day_stats: dict[str, Any] = {
-            "feeds_no_service": [],
-            "feeds_missing_tables": [],
-            "feeds_no_matching_trips": [],
-            "feeds_no_departures": [],
-            "feed_rows": [],
-        }
-        for zip_path in zip_paths:
-            print(f"  {zip_path.name} ...", flush=True)
-            process_feed(
-                zip_path,
-                stop_by_id,
-                route_by_id,
-                route_lookup,
+    if job_count <= 1:
+        for weekday in weekdays:
+            weekday_name, day_stats, lines_with_times = build_one_weekday(
                 weekday,
-                weekday_index,
-                accum,
-                day_stats,
+                weekday_index_by_name[weekday],
+                run_dir,
+                feed_caches,
+                route_by_id,
+                point_lookup,
             )
-
-        counts = write_operator_files(run_dir / weekday, accum)
-        lines_with_times: set[str] = set()
-        for entries in accum.values():
-            for (_point_id, line_id, _direction) in entries:
-                if line_id.startswith("line:"):
-                    lines_with_times.add(line_id[len("line:") :])
-        per_weekday_lines[weekday] = lines_with_times
-
-        day_stats["operators"] = counts
-        day_stats["routes_with_departures"] = len(lines_with_times)
-        all_stats["days"][weekday] = day_stats
-        print(f"  operators: {len(counts)}  routes with times: {len(lines_with_times)}")
+            per_weekday_lines[weekday_name] = lines_with_times
+            all_stats["days"][weekday_name] = day_stats
+    else:
+        with ProcessPoolExecutor(max_workers=job_count) as executor:
+            futures = {
+                executor.submit(
+                    build_one_weekday,
+                    weekday,
+                    weekday_index_by_name[weekday],
+                    run_dir,
+                    feed_caches,
+                    route_by_id,
+                    point_lookup,
+                ): weekday
+                for weekday in weekdays
+            }
+            for future in as_completed(futures):
+                weekday_name, day_stats, lines_with_times = future.result()
+                per_weekday_lines[weekday_name] = lines_with_times
+                all_stats["days"][weekday_name] = day_stats
 
     validation = build_validation_skeleton(route_by_id, per_weekday_lines)
     (run_dir / "generation_stats.json").write_text(
@@ -776,7 +1044,7 @@ def generate(
     print(f"\n[done] wrote {run_dir}")
     export_lines_csvs(run_dir, baseline_dir)
     print("\n[validation]")
-    validate_run(run_dir, baseline_dir, gtfs_dir, weekdays=weekdays)
+    validate_run(run_dir, baseline_dir, gtfs_dir, weekdays=weekdays, feed_caches=feed_caches)
     return run_dir
 
 
@@ -792,6 +1060,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--timestamp", type=str, default=None)
     parser.add_argument("--weekday", action="append", choices=list(WEEKDAYS))
+    parser.add_argument(
+        "--jobs",
+        type=int,
+        default=0,
+        help="Parallel weekday workers (0 or omit = auto: min(weekdays, CPU count))",
+    )
     parser.add_argument("--validate", action="store_true")
     parser.add_argument("--run-dir", type=Path, default=None)
     return parser.parse_args()
@@ -810,7 +1084,14 @@ def main() -> None:
         validate_run(args.run_dir, baseline_dir, args.gtfs_dir, weekdays=weekdays)
         return
 
-    generate(args.gtfs_dir, baseline_dir, args.output_dir, args.timestamp, weekdays=weekdays)
+    generate(
+        args.gtfs_dir,
+        baseline_dir,
+        args.output_dir,
+        args.timestamp,
+        weekdays=weekdays,
+        jobs=args.jobs,
+    )
 
 
 if __name__ == "__main__":
