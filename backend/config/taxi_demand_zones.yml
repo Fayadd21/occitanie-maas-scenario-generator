@@ -1,0 +1,184 @@
+cities:
+  toulouse:
+    n_fleet: 500
+    source_note: "Haute-Garonne MesADS is around 913, so we use a subset = 500"
+  montpellier:
+    n_fleet: 226
+    source_note: "Montpellier Mediterranee Metropole charter 2026"
+  nimes:
+    n_fleet: 45
+    source_note: "Nimes official ADS count"
+  perpignan:
+    n_fleet: 45
+    source_note: "Perpignan commune ADS count"
+
+booking_endpoint:
+  stand_probability: 0.25
+
+demand_zones:
+  toulouse:
+    - id: gare_matabiau
+      name: Gare SNCF Matabiau
+      lat: 43.6115
+      lon: 1.4537
+      zone_type: railway_station
+      weight: 3.0
+    - id: aeroport_blagnac
+      name: Aeroport Toulouse-Blagnac
+      lat: 43.6291
+      lon: 1.3638
+      zone_type: airport
+      weight: 3.0
+    - id: place_capitole
+      name: Place du Capitole
+      lat: 43.6046
+      lon: 1.4442
+      zone_type: city_center
+      weight: 2.5
+    - id: place_wilson
+      name: Place Wilson
+      lat: 43.6049
+      lon: 1.4478
+      zone_type: city_center
+      weight: 2.5
+    - id: metro_basso_cambo
+      name: Metro Basso Cambo
+      lat: 43.5695
+      lon: 1.3920
+      zone_type: multimodal_hub
+      weight: 1.8
+    - id: compans_caffarelli
+      name: Compans-Caffarelli
+      lat: 43.6105
+      lon: 1.4348
+      zone_type: multimodal_hub
+      weight: 1.8
+    - id: chu_purpan
+      name: CHU Purpan
+      lat: 43.6103
+      lon: 1.3990
+      zone_type: hospital
+      weight: 2.2
+    - id: stade_toulouse
+      name: Stadium Toulouse
+      lat: 43.5833
+      lon: 1.4340
+      zone_type: entertainment
+      weight: 1.6
+
+  montpellier:
+    - id: gare_saint_roch
+      name: Gare Montpellier Saint-Roch
+      lat: 43.6040
+      lon: 3.8809
+      zone_type: railway_station
+      weight: 3.0
+    - id: place_comedie
+      name: Place de la Comedie
+      lat: 43.6083
+      lon: 3.8772
+      zone_type: city_center
+      weight: 2.5
+    - id: aeroport_mediterranee
+      name: Aeroport Montpellier Mediterranee
+      lat: 43.5762
+      lon: 3.9630
+      zone_type: airport
+      weight: 3.0
+    - id: odysseum
+      name: Odysseum
+      lat: 43.5680
+      lon: 3.9080
+      zone_type: entertainment
+      weight: 1.7
+    - id: chu_lapeyronie
+      name: CHU Lapeyronie
+      lat: 43.6220
+      lon: 3.8530
+      zone_type: hospital
+      weight: 2.2
+    - id: antigone
+      name: Antigone
+      lat: 43.6100
+      lon: 3.8890
+      zone_type: city_center
+      weight: 2.0
+
+  nimes:
+    - id: gare_nimes
+      name: Gare de Nimes Centre
+      lat: 43.8322
+      lon: 4.3658
+      zone_type: railway_station
+      weight: 3.0
+    - id: gare_nimes_pont_du_gard
+      name: Gare Nimes Pont du Gard TGV
+      lat: 43.8163
+      lon: 4.5062
+      zone_type: railway_station
+      weight: 2.5
+    - id: arenes_nimes
+      name: Arenes de Nimes
+      lat: 43.8345
+      lon: 4.3595
+      zone_type: city_center
+      weight: 2.5
+    - id: aeroport_garons
+      name: Aeroport Nimes-Garons
+      lat: 43.7574
+      lon: 4.4164
+      zone_type: airport
+      weight: 2.8
+    - id: chu_caremeau
+      name: CHU Caremeau
+      lat: 43.8320
+      lon: 4.3390
+      zone_type: hospital
+      weight: 2.2
+    - id: esplanade_nimes
+      name: Esplanade Charles de Gaulle
+      lat: 43.8360
+      lon: 4.3580
+      zone_type: entertainment
+      weight: 1.8
+
+  perpignan:
+    - id: gare_perpignan
+      name: Gare de Perpignan
+      lat: 42.6965
+      lon: 2.8787
+      zone_type: railway_station
+      weight: 3.0
+    - id: castillet
+      name: Castillet / Centre historique
+      lat: 42.6990
+      lon: 2.8949
+      zone_type: city_center
+      weight: 2.5
+    - id: palais_congres
+      name: Palais des Congres
+      lat: 42.6890
+      lon: 2.8950
+      zone_type: entertainment
+      weight: 1.7
+    - id: ch_perpignan
+      name: Centre hospitalier Perpignan
+      lat: 42.6985
+      lon: 2.8870
+      zone_type: hospital
+      weight: 2.0
+    - id: canet_plage
+      name: Canet-en-Roussillon plage
+      lat: 42.6980
+      lon: 3.0340
+      zone_type: entertainment
+      weight: 1.4
+
+zone_attractiveness:
+  railway_station: 3.0
+  airport: 3.0
+  city_center: 2.5
+  hospital: 2.2
+  multimodal_hub: 1.8
+  entertainment: 1.6
+  residential_area: 1.0

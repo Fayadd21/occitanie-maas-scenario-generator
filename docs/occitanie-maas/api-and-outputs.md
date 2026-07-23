@@ -14,7 +14,7 @@
 | GET | `/jobs/{id}/log` | |
 | GET | `/jobs/{id}/population.geojson` | |
 | GET | `/jobs/{id}/activities.geojson` | |
-| GET | `/jobs/{id}/scenario.zip` | Demand `scenario.json` + `operators/{OperatorId}.json` (Public transport timetables from `timetables_path`; see [GTFS timetables](timetables.md)) |
+| GET | `/jobs/{id}/scenario.zip` | Demand `scenario.json` + `operators/{OperatorId}.json` (PT timetables from `timetables_path`; taxi fleet from `taxi_fleet_path`; see [GTFS timetables](timetables.md), [Taxi fleet](taxi-fleet.md)) |
 
 ### `GET /config/defaults`
 

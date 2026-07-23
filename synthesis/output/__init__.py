@@ -74,7 +74,11 @@ def configure(context):
     context.config("gtfs_path", "gtfs_idf")
     context.config("carsharing_path", "carsharing_occitanie/station_information_carsharing_citiz_occitanie.json")
     context.config("carpooling_path", "carpooling_occitanie/infrastructures-de-covoiturage-en-occitanie-v2.csv")
-    context.config("taxi_data_paths", ["taxi_pmr_occitanie/taxis_toulouse.json", "taxi_pmr_occitanie/pmr_taxis_delivery_Montpellier.json"])
+    context.config("taxi_data_paths", [
+        "taxi_pmr_occitanie/taxis_toulouse.json",
+        "taxi_pmr_occitanie/pmr_taxis_delivery_Montpellier.json",
+    ])
+    context.config("taxi_cities", ["toulouse", "montpellier", "perpignan", "nimes"])
     context.config("pmr_data_paths", ["taxi_pmr_occitanie/pmr_Toulouse.json", "taxi_pmr_occitanie/pmr_taxis_delivery_Montpellier.json"])
     context.config("parking_data_paths", [
         "parking_occitanie/etat-des-parkings-en-temps-reel-ville-de-nimes.csv",
@@ -408,6 +412,7 @@ def execute(context):
             context.config("carsharing_path"),
             context.config("carpooling_path"),
             context.config("taxi_data_paths"),
+            context.config("taxi_cities"),
             context.config("pmr_data_paths"),
             context.config("parking_data_paths"),
             context.config("pnr_data_paths"),

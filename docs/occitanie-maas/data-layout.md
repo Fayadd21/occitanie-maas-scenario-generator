@@ -139,6 +139,11 @@ layers (`gbfs_path`, `bikesharing_path`, and list paths in `config_occitanie.yml
 - `data/gtfs_occitanie/timetables/<timestamp>/monday/TisseoOperator.json` (and other weekdays / operators)
 - `data/gtfs_occitanie/timetables/<timestamp>/lines_by_weekday.csv`
 
+**Taxi fleet** (built with `scripts/generate_taxi_fleet.py`; see [Taxi fleet](taxi-fleet.md)):
+
+- `data/taxi_occitanie/fleet/<timestamp>/Taxi.json`
+- `data/taxi_occitanie/fleet/<timestamp>/generation_stats.json`
+
 ### GeoPackage outputs (UI map layers)
 
 With `output_formats` including `gpkg`, `synthesis.output` writes geometry for the
@@ -163,11 +168,13 @@ or CSVs from `export_static_resources`.
 | `gtfs_path` | `gtfs_occitanie/` |
 | `timetables_path` | `gtfs_occitanie/timetables/<timestamp>/` |
 | `timetables_weekday` | e.g. `monday` |
+| `taxi_fleet_path` | `taxi_occitanie/fleet/<timestamp>/` |
 | `gbfs_path` | `gbfs/` |
 | `bikesharing_path` | `bikesharing_occitanie/` |
 | `carsharing_path` | `carsharing_occitanie/station_information_carsharing_citiz_occitanie.json` |
 | `carpooling_path` | `carpooling_occitanie/infrastructures-de-covoiturage-en-occitanie-v2.csv` |
-| `taxi_data_paths` | `taxi_pmr_occitanie/` |
+| `taxi_data_paths` | `taxi_pmr_occitanie/` (`taxis_toulouse.json`, `pmr_taxis_delivery_Montpellier.json`) |
+| `taxi_cities` | `toulouse`, `montpellier`, `perpignan`, `nimes` |
 | `pmr_data_paths` | `taxi_pmr_occitanie/` |
 | `parking_data_paths` | `parking_occitanie/` |
 | `pnr_data_paths` | `p+r/` |

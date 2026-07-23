@@ -8,13 +8,13 @@ config:
   target_population: null
   target_households: null
   baseline_run_id: baseline_occitanie_59510
-  baseline_run_path: # expected something like: /mnt/c/eqasim-france/output/baselines/baseline_occitanie_59510
+  baseline_run_path: # expects something like: /mnt/c/eqasim-france/output/baselines/baseline_occitanie_59510
   sampling_rate: 0.01
   random_seed: 1234
 
   # Paths to the input data and where the output should be stored
-  data_path: # expected something like: /mnt/c/eqasim-france/data
-  output_path: # expected something like: /mnt/c/eqasim-france/output
+  data_path: # expects something like: /mnt/c/eqasim-france/data
+  output_path: # expects something like: /mnt/c/eqasim-france/output
   output_prefix: occitanie_
   output_formats:
   - csv
@@ -52,5 +52,7 @@ config:
 
   income_assignation_method: bhepop2
 
-  timetables_path: # expected something like: /mnt/c/eqasim-france/data/gtfs_occitanie/timetables/20260717_163230
-  timetables_weekday: # expected something like: monday/tuesday/wednesday/thursday/friday/saturday/sunday
+  timetables_path: # expects something like: /mnt/c/eqasim-france/data/gtfs_occitanie/timetables/20260717_163230
+  timetables_weekday: # expects something like: monday/tuesday/wednesday/thursday/friday/saturday/sunday
+
+  taxi_fleet_path: # expects something like: /mnt/c/eqasim-france/data/taxi_occitanie/fleet/20260717_163230

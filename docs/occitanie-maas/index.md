@@ -26,6 +26,7 @@ profiles-and-latent-classes.md
 constraints.md
 baseline-and-scenarios.md
 timetables.md
+taxi-fleet.md
 api-and-outputs.md
 unit-tests.md
 ```

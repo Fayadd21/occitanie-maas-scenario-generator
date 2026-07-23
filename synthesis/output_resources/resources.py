@@ -523,46 +523,14 @@ def _load_carpooling_stops(data_path, relative_csv_path):
     return df.rename(columns={"Ylat": "lat", "Xlong": "lon"})
 
 
-def _load_taxi_stands(data_path, relative_paths):
-    rows = []
-    for rel_path in relative_paths:
-        path = os.path.join(data_path, rel_path)
-        if not os.path.exists(path):
-            continue
-        with open(path, "r", encoding="utf-8") as f:
-            payload = json.load(f)
+def _load_taxi_stands(data_path, relative_paths, target_cities=None):
+    from synthesis.output_resources.taxi.stands_loader import load_taxi_stands_dataframe
 
-        records = payload if isinstance(payload, list) else payload.get("features", [])
-        for item in records:
-            if isinstance(item, dict) and "properties" in item:
-                props = item.get("properties", {})
-                lat, lon = _extract_lat_lon(props)
-                geometry = item.get("geometry", {})
-                if (lat is None or lon is None) and isinstance(geometry, dict):
-                    coordinates = geometry.get("coordinates", [])
-                    if isinstance(coordinates, list) and len(coordinates) >= 2:
-                        lon, lat = coordinates[0], coordinates[1]
-            else:
-                props = item if isinstance(item, dict) else {}
-                gp = props.get("geo_point_2d", {}) if isinstance(props.get("geo_point_2d"), dict) else {}
-                lat = props.get("lat") or props.get("coord_y") or gp.get("lat")
-                lon = props.get("lon") or props.get("coord_x") or gp.get("lon")
-
-            tipe = str(props.get("tipe", "")).strip().lower()
-            if "pmr" in tipe and "taxi" not in tipe:
-                continue
-
-            if lat is None or lon is None:
-                continue
-            rows.append({
-                "name": props.get("lib_voie") or props.get("nom") or props.get("name"),
-                "commune": props.get("commune"),
-                "nb_places": props.get("nb_places") or props.get("nbr_emplacement"),
-                "lat": lat,
-                "lon": lon,
-                "source_file": os.path.basename(path),
-            })
-    return pd.DataFrame(rows)
+    return load_taxi_stands_dataframe(
+        data_path,
+        relative_paths,
+        target_cities=target_cities,
+    )
 
 
 def _load_pmr_stands(data_path, relative_paths):

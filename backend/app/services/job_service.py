@@ -488,6 +488,67 @@ def _resolve_timetable_settings(record: dict[str, Any] | None = None) -> tuple[P
     return path, weekday
 
 
+def _resolve_taxi_fleet_settings(record: dict[str, Any] | None = None) -> Path | None:
+    template_cfg = _load_yaml_config(CONFIG_TEMPLATE)
+    runtime_cfg: dict[str, Any] = {}
+    if record:
+        runtime_config = record.get("runtime_config")
+        if runtime_config:
+            runtime_cfg = _load_yaml_config(Path(str(runtime_config)))
+
+    merged = {**template_cfg, **runtime_cfg}
+    raw_path = merged.get("taxi_fleet_path")
+    if raw_path is None or str(raw_path).strip() in {"", "null", "None"}:
+        raw_path = template_cfg.get("taxi_fleet_path")
+    if raw_path is None or str(raw_path).strip() in {"", "null", "None"}:
+        return None
+
+    path = Path(str(raw_path).strip())
+    if not path.is_absolute():
+        data_path = merged.get("data_path") or template_cfg.get("data_path")
+        base = Path(str(data_path)) if data_path else DATA_DIR
+        path = base / path
+    return path
+
+
+def _load_taxi_operator_payload(
+    output_path: Path,
+    run_id: str,
+    taxi_fleet_dir: Path | None,
+) -> dict[str, Any] | None:
+    fleet_file = taxi_fleet_dir / "Taxi.json" if taxi_fleet_dir is not None else None
+    if fleet_file is not None and fleet_file.is_file():
+        payload = json.loads(fleet_file.read_text(encoding="utf-8"))
+        if isinstance(payload, dict):
+            return payload
+
+    from synthesis.output_resources.taxi.fleet import load_taxi_stands_csv
+    from synthesis.output_resources.taxi.stands import taxi_stand_points_from_dataframe
+
+    csv_path = _resolve_scenario_resource_path(output_path, run_id, "taxi_stands.csv")
+    if not csv_path.is_file():
+        return None
+    stands = load_taxi_stands_csv(csv_path)
+    points = taxi_stand_points_from_dataframe(stands)
+    if not points:
+        return None
+    return {
+        "operator_id": "Taxi",
+        "modes": [
+            {
+                "id": "Taxi",
+                "operator_id": "Taxi",
+                "free": False,
+                "restricted_to": [],
+            }
+        ],
+        "resources": [],
+        "points": points,
+        "positions": [],
+        "timetables": [],
+    }
+
+
 def _load_operator_timetables(timetables_dir: Path | None, weekday: str, operator_id: str) -> list[Any]:
     path = _operator_timetable_path(timetables_dir, weekday, operator_id)
     if path is None:
@@ -881,6 +942,7 @@ def _build_resources(
     bike_station_availability: dict[str, int] | None = None,
     timetables_dir: Path | None = None,
     timetables_weekday: str = "monday",
+    taxi_fleet_dir: Path | None = None,
     include_timetables: bool = True,
 ) -> dict[str, Any]:
     routes_path = _resolve_scenario_resource_path(output_path, run_id, "gtfs_routes.csv")
@@ -1113,7 +1175,6 @@ def _build_resources(
     extra_layers = (
         ("carsharing_stations.csv", "Carsharing", "Carsharing", "carsharing_station", "car_station", ("station_id",), "capacity"),
         ("carpooling_stops.csv", "Carpooling", "Carpooling", "carpooling_stop", "carpool_stop", ("id_local",), "nbre_pl"),
-        ("taxi_stands.csv", "Taxi", "Taxi", "taxi_stand", "taxi_stand", ("name", "source_file"), "nb_places"),
         ("pmr_stands.csv", "PMR", "PMR", "pmr_stand", "pmr_stand", ("name", "source_file"), "nb_places"),
         ("public_parking.csv", "Parking", "Parking", "parking", "parking", ("parking_id",), "total_spaces"),
         ("park_and_ride.csv", "ParkAndRide", "ParkAndRide", "park_and_ride", "park_and_ride", ("parking_id",), "park_and_ride_spaces"),
@@ -1136,5 +1197,9 @@ def _build_resources(
             operator_resources=layer_resources,
             operator_points=layer_points,
         )
+
+    taxi_payload = _load_taxi_operator_payload(output_path, run_id, taxi_fleet_dir)
+    if taxi_payload is not None:
+        resources["Taxi"] = taxi_payload
 
     return resources

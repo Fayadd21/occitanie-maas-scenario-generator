@@ -10,6 +10,7 @@ data/lyon_2015
 data/ban_occitanie
 data/bdtopo_occitanie
 data/gtfs_occitanie
+data/taxi_occitanie
 data/carsharing_occitanie
 data/carpooling_occitanie
 data/parking_occitanie
