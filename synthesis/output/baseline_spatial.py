@@ -74,10 +74,24 @@ def load_geometry_for_home_distance(activities_gpkg_path: str, person_ids: set |
         where=where,
     )
     if not isinstance(gdf, gpd.GeoDataFrame):
-        gdf = gpd.GeoDataFrame(gdf, geometry="geometry", crs="EPSG:4326")
+        gdf = gpd.GeoDataFrame(gdf, geometry="geometry")
+    if gdf.crs is None:
+        from synthesis.profiles.loader import _looks_like_projected_meters
+
+        sample = gdf[gdf["geometry"].notna()]
+        if len(sample) > 0:
+            x = float(sample.geometry.iloc[0].x)
+            y = float(sample.geometry.iloc[0].y)
+            if _looks_like_projected_meters(x, y):
+                gdf = gdf.set_crs("EPSG:2154", allow_override=True)
+            else:
+                gdf = gdf.set_crs("EPSG:4326", allow_override=True)
+    crs_text = str(gdf.crs).upper() if gdf.crs is not None else ""
+    if crs_text not in {"", "EPSG:4326", "OGC:CRS84"}:
+        gdf = gdf.to_crs("EPSG:4326")
     keep_cols = [
         column
         for column in ["person_id", "activity_index", "purpose", "geometry"]
         if column in gdf.columns
     ]
-    return gdf[keep_cols].copy()
+    return pd.DataFrame(gdf[keep_cols].copy())

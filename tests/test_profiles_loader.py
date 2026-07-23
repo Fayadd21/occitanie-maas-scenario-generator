@@ -199,6 +199,31 @@ def test_attach_home_destination_distance_education_fallback():
     assert result.loc[0, "home_destination_distance_km"] > 5.0
 
 
+def test_attach_home_destination_distance_lambert93():
+    geopandas = pytest.importorskip("geopandas")
+    from shapely.geometry import Point
+
+    gpd = geopandas
+    df_persons = pd.DataFrame([{"person_id": "p1", "age": 30}])
+    df_activities = gpd.GeoDataFrame(
+        [
+            {"person_id": "p1", "activity_index": 0, "purpose": "home", "geometry": Point(564600.45, 6212636.06)},
+            {"person_id": "p1", "activity_index": 1, "purpose": "work", "geometry": Point(563950.0, 6212650.0)},
+        ],
+        geometry="geometry",
+        crs="EPSG:2154",
+    )
+    result = attach_home_destination_distance(df_persons, df_activities)
+    assert result.loc[0, "home_destination_distance_km"] < 20.0
+
+
+def test_persons_have_home_destination_distance_rejects_projected_misread():
+    from synthesis.profiles.loader import persons_have_home_destination_distance
+
+    df_persons = pd.DataFrame({"person_id": ["p1"], "home_destination_distance_km": [5508.0]})
+    assert persons_have_home_destination_distance(df_persons) is False
+
+
 def test_assign_latent_classes_home_destination_distance_rules(tmp_path):
     profiles_path = tmp_path / "profiles_distance.yml"
     profiles_path.write_text(

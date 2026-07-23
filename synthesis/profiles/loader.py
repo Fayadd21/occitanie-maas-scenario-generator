@@ -208,6 +208,37 @@ def _geodesic_distance_km(origin: Any, destination: Any) -> float | None:
     return _EARTH_RADIUS_KM * 2.0 * math.asin(min(1.0, math.sqrt(chord)))
 
 
+def _looks_like_projected_meters(x: float, y: float) -> bool:
+    return abs(x) > 180 or abs(y) > 90
+
+
+def _activities_with_wgs84_geometry(df_activities: pd.DataFrame) -> pd.DataFrame:
+    import geopandas as gpd
+
+    if "geometry" not in df_activities.columns:
+        return df_activities
+
+    if isinstance(df_activities, gpd.GeoDataFrame):
+        gdf = df_activities.copy()
+    else:
+        gdf = gpd.GeoDataFrame(df_activities.copy(), geometry="geometry")
+
+    crs_text = str(gdf.crs).upper() if gdf.crs is not None else ""
+    if crs_text not in {"", "EPSG:4326", "OGC:CRS84"}:
+        gdf = gdf.to_crs("EPSG:4326")
+    elif gdf.crs is None:
+        sample = gdf[gdf["geometry"].notna()]
+        if len(sample) > 0:
+            x = float(sample.geometry.iloc[0].x)
+            y = float(sample.geometry.iloc[0].y)
+            if _looks_like_projected_meters(x, y):
+                gdf = gdf.set_crs("EPSG:2154", allow_override=True).to_crs("EPSG:4326")
+            else:
+                gdf = gdf.set_crs("EPSG:4326", allow_override=True)
+
+    return pd.DataFrame(gdf.drop(columns="geometry")).assign(geometry=gdf.geometry.to_numpy())
+
+
 def _geometry_by_purpose(df_activities: pd.DataFrame, purpose: str) -> pd.Series:
     subset = df_activities[df_activities["purpose"].astype(str) == purpose]
     if len(subset) == 0:
@@ -280,6 +311,8 @@ def attach_home_destination_distance(
     else:
         activities["person_id"] = activities["person_id"].astype(str)
 
+    activities = _activities_with_wgs84_geometry(activities)
+
     home = _geometry_by_purpose(activities, "home")
     work = _geometry_by_purpose(activities, "work")
     education = _geometry_by_purpose(activities, "education")
@@ -324,7 +357,12 @@ def attach_home_destination_distance(
 def persons_have_home_destination_distance(df_persons: pd.DataFrame) -> bool:
     if "home_destination_distance_km" not in df_persons.columns:
         return False
-    return bool(df_persons["home_destination_distance_km"].notna().any())
+    series = pd.to_numeric(df_persons["home_destination_distance_km"], errors="coerce")
+    if not series.notna().any():
+        return False
+    if (series > 500).any():
+        return False
+    return True
 
 
 def maybe_attach_home_destination_distance(

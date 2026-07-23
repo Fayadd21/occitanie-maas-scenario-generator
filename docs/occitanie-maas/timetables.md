@@ -31,14 +31,14 @@ uv run data/gtfs/build_timetables.py
 | `--weekday` | All seven weekdays | Day(s) to build; repeat for several, e.g. `--weekday monday --weekday sunday` |
 | `--jobs` | omitted / auto(0) | Max weekdays built in parallel (see below) |
 
-Validation (`validation_report.json`) **always runs at the end of a normal build** — no flag required.
+Validation (`validation_report.json`) **always runs at the end of a normal build** - no flag required.
 
 **Validate-only** (no rebuild): pass both flags below.
 
 | Option | Default | Meaning |
 |--------|---------|---------|
 | `--validate` | not set | Set to skip generation and only validate an existing run |
-| `--run-dir` | — | Required with `--validate`: existing timetable run folder |
+| `--run-dir` | - | Required with `--validate`: existing timetable run folder |
 
 **`--jobs`:** Each weekday (monday, tuesday, …) is built independently. GTFS zips are
 loaded once, then weekday folders are written. `--jobs` caps how many weekdays run
@@ -60,10 +60,10 @@ and one JSON file per PT operator (`TisseoOperator.json`, `SNCFOperator.json`, �
 
 Generation also writes:
 
-- `generation_stats.json` — feed-level stats per weekday
-- `validation_skeleton.json` — baseline routes with vs without departures
-- `validation_report.json` — zero-departure diagnosis (see below)
-- `lines_by_weekday.csv` and `lines_by_weekday_summary.csv` — route coverage summary
+- `generation_stats.json` - feed-level stats per weekday
+- `validation_skeleton.json` - baseline routes with vs without departures
+- `validation_report.json` - zero-departure diagnosis (see below)
+- `lines_by_weekday.csv` and `lines_by_weekday_summary.csv` - route coverage summary
 
 **Examples:**
 
@@ -137,7 +137,7 @@ timetable builder uses. `timetables_path` / `timetables_weekday` define which
 built run scenario export loads.
 
 Paths are relative to `data_path`. After changing the run folder, **start a new
-scenario job** — existing jobs keep the `timetables_path` from their runtime YAML.
+scenario job** - existing jobs keep the `timetables_path` from their runtime YAML.
 
 On **Export scenario zip**, PT operators get timetables from:
 

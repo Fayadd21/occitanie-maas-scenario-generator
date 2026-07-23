@@ -54,6 +54,7 @@ def export_static_resources(
     carsharing_path: str,
     carpooling_path: str,
     taxi_data_paths: list[str],
+    taxi_cities: list[str] | None,
     pmr_data_paths: list[str],
     parking_data_paths: list[str],
     pnr_data_paths: list[str],
@@ -96,7 +97,11 @@ def export_static_resources(
     resources = [
         (_load_carsharing_stations(context.config("data_path"), carsharing_path), "carsharing_stations", "lon", "lat"),
         (_load_carpooling_stops(context.config("data_path"), carpooling_path), "carpooling_stops", "lon", "lat"),
-        (_load_taxi_stands(context.config("data_path"), taxi_data_paths), "taxi_stands", "lon", "lat"),
+        (_load_taxi_stands(
+            context.config("data_path"),
+            taxi_data_paths,
+            target_cities=taxi_cities,
+        ), "taxi_stands", "lon", "lat"),
         (_load_pmr_stands(context.config("data_path"), pmr_data_paths), "pmr_stands", "lon", "lat"),
         (df_public_parking, "public_parking", "lon", "lat"),
         (df_park_and_ride, "park_and_ride", "lon", "lat"),
