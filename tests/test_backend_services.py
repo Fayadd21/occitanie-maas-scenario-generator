@@ -461,3 +461,55 @@ def test_attach_scenario_outcome_no_shortfall_when_targets_met(tmp_path):
     outcome = _attach_scenario_outcome(record)
 
     assert outcome["target_shortfall"] is False
+
+
+def test_build_scenario_parts_exports_only_persons_with_requests(tmp_path, monkeypatch):
+    import geopandas as gpd
+    from shapely.geometry import Point
+
+    from backend.app.services import job_service
+    from backend.app.services.job_service import _build_scenario_parts
+
+    run_id = "run_export_filter"
+    output_path = tmp_path / "jobs" / run_id
+    output_path.mkdir(parents=True)
+    prefix = f"{run_id}_"
+
+    profiles_path = tmp_path / "profiles.yml"
+    profiles_path.write_text("version: 1\nprofiles: []\n", encoding="utf-8")
+
+    pd.DataFrame(
+        {
+            "person_id": ["home_only", "traveler"],
+            "latent_class": ["cost_efficient", "prefers_bike"],
+        }
+    ).to_csv(output_path / f"{prefix}persons.csv", sep=";", index=False)
+    pd.DataFrame(
+        [
+            {"person_id": "home_only", "activity_index": 0, "start_time": 0, "end_time": 60},
+            {"person_id": "traveler", "activity_index": 0, "start_time": 0, "end_time": 60},
+            {"person_id": "traveler", "activity_index": 1, "start_time": 120, "end_time": 180},
+        ]
+    ).to_csv(output_path / f"{prefix}activities.csv", sep=";", index=False)
+    gpd.GeoDataFrame(
+        [
+            {"person_id": "traveler", "activity_index": 0, "geometry": Point(1.44, 43.6)},
+            {"person_id": "traveler", "activity_index": 1, "geometry": Point(1.45, 43.61)},
+        ],
+        crs="EPSG:4326",
+    ).to_file(output_path / f"{prefix}activities.gpkg", driver="GPKG")
+
+    record = {
+        "status": "succeeded",
+        "job_type": "scenario",
+        "run_id": run_id,
+        "output_path": str(output_path),
+        "effective_config": {"profiles_path": str(profiles_path)},
+    }
+    monkeypatch.setattr(job_service, "_require_succeeded_job", lambda _: record)
+
+    demand, *_ = _build_scenario_parts("job_export_filter")
+
+    assert [person["person_id"] for person in demand["persons"]] == ["traveler"]
+    assert len(demand["requests"]) == 1
+    assert demand["requests"][0]["person_id"] == "traveler"

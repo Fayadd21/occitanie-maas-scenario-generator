@@ -89,6 +89,10 @@ function formatScenarioOutcomeMessage(status) {
     lines.push(`Generated: ${generatedParts.join(', ')}`)
   }
 
+  if (status.persons_without_requests_count != null) {
+    lines.push(`Persons without trip requests: ${status.persons_without_requests_count}`)
+  }
+
   if (status.target_shortfall) {
     lines.push('')
     lines.push(

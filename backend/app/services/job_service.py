@@ -145,6 +145,9 @@ def _attach_scenario_outcome(record: dict[str, Any]) -> dict[str, Any]:
     record["generated_person_count"] = generated_persons
     record["generated_household_count"] = generated_households
     record["target_shortfall"] = population_shortfall or household_shortfall
+    without_requests = _count_persons_without_requests(output_path, run_id)
+    if without_requests is not None:
+        record["persons_without_requests_count"] = without_requests
     return record
 
 
@@ -326,7 +329,10 @@ def get_job(job_id: str) -> dict[str, Any]:
         record.get("job_type") == "scenario"
         and record.get("status") == "succeeded"
         and record.get("outputs_materialized")
-        and record.get("generated_person_count") is None
+        and (
+            record.get("generated_person_count") is None
+            or record.get("persons_without_requests_count") is None
+        )
     ):
         record = _attach_scenario_outcome(record)
         _write_job_record(job_id, record)
@@ -637,13 +643,6 @@ def _build_scenario_parts(job_id: str) -> tuple[dict[str, Any], dict[str, Any], 
                 for pid, raw in zip(person_ids, df_persons["constraints"].tolist(), strict=False)
             }
 
-    persons_export_df = df_persons.copy()
-    if "constraints" in persons_export_df.columns:
-        persons_export_df["constraints"] = [
-            person_to_constraints.get(str(pid), [])
-            for pid in persons_export_df["person_id"].astype(str)
-        ]
-    persons_export = persons_export_df.where(pd.notna(persons_export_df), None).to_dict(orient="records")
     requests = _build_requests(
         df_activities,
         gdf_activities,
@@ -651,23 +650,38 @@ def _build_scenario_parts(job_id: str) -> tuple[dict[str, Any], dict[str, Any], 
         person_to_constraints=person_to_constraints,
         profiles_path=profiles_path,
     )
+    request_person_ids = {str(request.get("person_id")) for request in requests if request.get("person_id") is not None}
+
+    persons_export_df = df_persons.copy()
+    if request_person_ids:
+        persons_export_df = persons_export_df[
+            persons_export_df["person_id"].astype(str).isin(request_person_ids)
+        ]
+    else:
+        persons_export_df = persons_export_df.iloc[0:0]
+    if "constraints" in persons_export_df.columns:
+        persons_export_df["constraints"] = [
+            person_to_constraints.get(str(pid), [])
+            for pid in persons_export_df["person_id"].astype(str)
+        ]
+    persons_export = persons_export_df.where(pd.notna(persons_export_df), None).to_dict(orient="records")
+
     bike_station_availability = bike_station_availability_from_job_record(record)
     timetables_dir, timetables_weekday = _resolve_timetable_settings(record)
+    taxi_fleet_dir = _resolve_taxi_fleet_settings(record)
     resources = _build_resources(
         output_path,
         run_id,
         bike_station_availability=bike_station_availability,
         timetables_dir=timetables_dir,
         timetables_weekday=timetables_weekday,
+        taxi_fleet_dir=taxi_fleet_dir,
         include_timetables=False,
     )
-    request_person_ids = {str(request.get("person_id")) for request in requests if request.get("person_id") is not None}
-    persons_without_requests = sorted(all_person_ids - request_person_ids) if all_person_ids else []
 
     demand = {
         "persons": persons_export,
         "requests": requests,
-        "persons_without_requests": persons_without_requests,
         "profiles_path": str(profiles_path),
     }
     return demand, resources, run_id, timetables_dir, timetables_weekday
@@ -715,6 +729,65 @@ def _to_min_str(value: Any) -> str | None:
     if pd.isna(value):
         return None
     return str(int(round(float(value) / 60.0)))
+
+
+def _person_ids_with_trip_requests(
+    df_activities: pd.DataFrame,
+    gdf_activities: gpd.GeoDataFrame,
+) -> set[str]:
+    if len(df_activities) == 0:
+        return set()
+    required = {"person_id", "activity_index"}
+    if not required.issubset(df_activities.columns):
+        return set()
+
+    merge_cols = [c for c in ["person_id", "activity_index"] if c in gdf_activities.columns]
+    if len(merge_cols) != 2 or "geometry" not in gdf_activities.columns:
+        return set()
+
+    if gdf_activities.crs is not None and str(gdf_activities.crs).lower() != "epsg:4326":
+        gdf_activities = gdf_activities.to_crs("EPSG:4326")
+
+    merged = pd.merge(
+        df_activities,
+        gdf_activities[["person_id", "activity_index", "geometry"]],
+        on=["person_id", "activity_index"],
+        how="left",
+    )
+    merged = merged.sort_values(["person_id", "activity_index"], kind="mergesort")
+
+    person_ids: set[str] = set()
+    for person_id_raw, group in merged.groupby("person_id", observed=False, sort=False):
+        if len(group) < 2 or "geometry" not in group.columns:
+            continue
+        ordered = group.reset_index(drop=True)
+        geometries = ordered["geometry"].tolist()
+        for leg_idx in range(len(ordered) - 1):
+            start_geom = geometries[leg_idx]
+            end_geom = geometries[leg_idx + 1]
+            if start_geom is None or end_geom is None or pd.isna(start_geom) or pd.isna(end_geom):
+                continue
+            person_ids.add(str(person_id_raw))
+            break
+    return person_ids
+
+
+def _count_persons_without_requests(output_path: Path, run_id: str) -> int | None:
+    activities_path = output_path / f"{run_id}_activities.csv"
+    activities_gpkg_path = output_path / f"{run_id}_activities.gpkg"
+    persons_path = output_path / f"{run_id}_persons.csv"
+    if not activities_path.is_file() or not activities_gpkg_path.is_file() or not persons_path.is_file():
+        return None
+
+    df_activities = pd.read_csv(activities_path, sep=";")
+    gdf_activities = gpd.read_file(activities_gpkg_path)
+    df_persons = pd.read_csv(persons_path, sep=";")
+    if "person_id" not in df_persons.columns:
+        return None
+
+    all_person_ids = set(df_persons["person_id"].astype(str))
+    with_requests = _person_ids_with_trip_requests(df_activities, gdf_activities)
+    return len(all_person_ids - with_requests)
 
 
 def _build_requests(
